@@ -54,11 +54,17 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
             guard oldValue != isMouseCaptured else { return }
             pendingDX = 0; pendingDY = 0
             downButtons.removeAll()
+            overlay.reset(notify: false)
             if isMouseCaptured { captureStart = CACurrentMediaTime() }
             setNeedsUpdateOfPrefersPointerLocked()
             updateCursorVisibility()
             applyPadState()
         }
+    }
+
+    /// Chế độ thử cảm ứng ngoài game: overlay nhận cả màn hình để thử vuốt (không lưu)
+    var padTestMode = false {
+        didSet { applyPadState() }
     }
 
     /// Đang ở chế độ chỉnh sửa bố cục nút
@@ -170,13 +176,14 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
     func applyPadState() {
         guard isViewLoaded else { return }
         let s = PadStore.shared.settings
-        // Bật là hiện ngay. Chỉ nhận cảm ứng khi đang trong game (hoặc đang chỉnh sửa);
-        // còn ở menu GFN thì cảm ứng đi xuyên xuống trang web như bình thường.
+        // Bật là hiện ngay và LUÔN nhận cảm ứng (kể cả ngoài game để thử).
+        // Ngoài game: chạm ra ngoài nút/joystick thì đi xuyên xuống trang web, trừ khi bật "Thử vuốt".
         let show = s.enabled
-        let interactive = show && (isMouseCaptured || padEditing)
-        if !interactive { overlay.reset(notify: false) }
+        if !show { overlay.reset(notify: false) }
         overlay.isHidden = !show
-        overlay.isUserInteractionEnabled = interactive
+        overlay.isUserInteractionEnabled = show
+        overlay.passthroughOutsideControls = !(isMouseCaptured || padEditing || padTestMode)
+        overlay.feedback = !isMouseCaptured
         overlay.alpha = padEditing ? 1 : s.opacity
         updateGyro()
         refreshMenu()

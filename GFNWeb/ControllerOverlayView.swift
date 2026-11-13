@@ -97,6 +97,16 @@ final class ControllerOverlayView: UIView {
     /// Đang giữ nút chuột phải (dùng cho gyro "chỉ khi ngắm")
     private(set) var aimHeld = false
 
+    /// true = chạm ra ngoài các nút / joystick thì cảm ứng đi xuyên xuống trang web (dùng ngoài game)
+    var passthroughOutsideControls = false
+
+    /// true = hiện phản hồi trực quan (chấm theo ngón tay, chữ báo thao tác) để thử cảm ứng ngoài game
+    var feedback = false {
+        didSet {
+            if !feedback { lookDot.isHidden = true; flashLabel.isHidden = true }
+        }
+    }
+
     var editing = false {
         didSet {
             guard oldValue != editing else { return }
@@ -118,6 +128,9 @@ final class ControllerOverlayView: UIView {
     private var buttonViews: [UUID: PadButtonView] = [:]
     private let joystick = JoystickView()
     private let hint = UILabel()
+    private let lookDot = UIView()
+    private let flashLabel = UILabel()
+    private var lookTotal = CGPoint.zero
 
     private var roles: [UITouch: Role] = [:]
     private var startPoints: [UITouch: CGPoint] = [:]
@@ -141,7 +154,50 @@ final class ControllerOverlayView: UIView {
         hint.isHidden = true
         hint.isUserInteractionEnabled = false
         addSubview(hint)
+
+        lookDot.bounds = CGRect(x: 0, y: 0, width: 36, height: 36)
+        lookDot.layer.cornerRadius = 18
+        lookDot.backgroundColor = UIColor.systemGreen.withAlphaComponent(0.45)
+        lookDot.layer.borderWidth = 2
+        lookDot.layer.borderColor = UIColor.white.withAlphaComponent(0.8).cgColor
+        lookDot.isUserInteractionEnabled = false
+        lookDot.isHidden = true
+        addSubview(lookDot)
+
+        flashLabel.textColor = .white
+        flashLabel.font = .boldSystemFont(ofSize: 15)
+        flashLabel.textAlignment = .center
+        flashLabel.backgroundColor = UIColor.black.withAlphaComponent(0.55)
+        flashLabel.layer.cornerRadius = 8
+        flashLabel.clipsToBounds = true
+        flashLabel.isUserInteractionEnabled = false
+        flashLabel.isHidden = true
+        addSubview(flashLabel)
     }
+
+    // MARK: Nhận cảm ứng
+
+    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        guard !isHidden, alpha > 0.01, isUserInteractionEnabled else { return nil }
+        // Chuột / trackpad luôn đi xuyên xuống trang web (trừ lúc chỉnh sửa bố cục)
+        if !editing, let t = event?.allTouches?.first, t.type == .indirectPointer { return nil }
+        if passthroughOutsideControls, !editing, buttonID(at: point) == nil, !joystickHit(point) { return nil }
+        return super.hitTest(point, with: event)
+    }
+
+    // MARK: Phản hồi trực quan
+
+    private func flash(_ text: String) {
+        guard feedback else { return }
+        flashLabel.text = "  \(text)  "
+        flashLabel.sizeToFit()
+        flashLabel.isHidden = false
+        setNeedsLayout()
+        NSObject.cancelPreviousPerformRequests(withTarget: self, selector: #selector(hideFlash), object: nil)
+        perform(#selector(hideFlash), with: nil, afterDelay: 0.9)
+    }
+
+    @objc private func hideFlash() { flashLabel.isHidden = true }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
@@ -179,6 +235,8 @@ final class ControllerOverlayView: UIView {
         joystick.bounds = CGRect(x: 0, y: 0, width: s.joySize, height: s.joySize)
         joystick.center = CGPoint(x: s.joyX * bounds.width, y: s.joyY * bounds.height)
         hint.frame = CGRect(x: 0, y: safeAreaInsets.top + 12, width: bounds.width, height: 24)
+        let fw = max(flashLabel.bounds.width, 10)
+        flashLabel.frame = CGRect(x: (bounds.width - fw) / 2, y: safeAreaInsets.top + 44, width: fw, height: 28)
     }
 
     // MARK: Reset
@@ -199,6 +257,8 @@ final class ControllerOverlayView: UIView {
         aimHeld = false
         buttonViews.values.forEach { $0.setPressed(false) }
         joystick.setOffset(.zero)
+        lookDot.isHidden = true
+        lookTotal = .zero
     }
 
     // MARK: Tìm phần tử dưới ngón tay
@@ -254,6 +314,10 @@ final class ControllerOverlayView: UIView {
         for code in heldJoyCodes.subtracting(want) {
             if let spec = joyKeys[code] { onAction?(.key(spec), false) }
         }
+        if want != heldJoyCodes {
+            let names = want.map { String($0.dropFirst(3)) }.sorted().joined(separator: " ")
+            flash(want.isEmpty ? "Đi: dừng" : "Đi: \(names)")
+        }
         heldJoyCodes = want
     }
 
@@ -274,6 +338,7 @@ final class ControllerOverlayView: UIView {
             }
             if let id = buttonID(at: p), let m = model(id) {
                 roles[t] = .button(id)
+                flash("Nút: \(m.label)")
                 buttonViews[id]?.setPressed(true)
                 recomputeAim()
                 onAction?(m.action, true)
@@ -282,6 +347,7 @@ final class ControllerOverlayView: UIView {
                 moveJoystick(to: p)
             } else {
                 roles[t] = .look
+                if feedback { lookDot.center = p; lookDot.isHidden = false; lookTotal = .zero }
             }
         }
     }
@@ -294,6 +360,12 @@ final class ControllerOverlayView: UIView {
             switch role {
             case .look:
                 onLook?(p.x - prev.x, p.y - prev.y)
+                if feedback {
+                    lookDot.center = p
+                    lookTotal.x += p.x - prev.x
+                    lookTotal.y += p.y - prev.y
+                    flash(String(format: "Vuốt: x %+.0f  y %+.0f", lookTotal.x, lookTotal.y))
+                }
             case .joystick:
                 moveJoystick(to: p)
             case .button:
@@ -336,7 +408,7 @@ final class ControllerOverlayView: UIView {
             startPoints[t] = nil
             switch role {
             case .look:
-                break
+                lookDot.isHidden = true
             case .joystick:
                 joystick.setOffset(.zero)
                 updateJoystickKeys()

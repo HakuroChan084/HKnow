@@ -66,6 +66,14 @@ extension WebViewController {
             self?.addButtonFlow()
         }
 
+        let test = UIAction(
+            title: "Thử vuốt toàn màn hình (ngoài game)",
+            image: UIImage(systemName: "hand.draw"),
+            state: padTestMode ? .on : .off
+        ) { [weak self] _ in
+            self?.padTestMode.toggle()
+        }
+
         let gyroMode = UIMenu(title: "Gyro (nghiêng máy để ngắm)", children: [
             UIAction(title: "Tắt", state: s.gyroMode == .off ? .on : .off) { [weak self] _ in
                 store.settings.gyroMode = .off; self?.commitPad()
@@ -117,7 +125,7 @@ extension WebViewController {
         }
 
         gearButton.menu = UIMenu(title: "", children: [
-            UIMenu(title: "", options: .displayInline, children: [toggle, edit, add]),
+            UIMenu(title: "", options: .displayInline, children: [toggle, edit, add, test]),
             UIMenu(title: "", options: .displayInline, children: [gyroMode, gyroSens, gyroInvX, gyroInvY]),
             UIMenu(title: "", options: .displayInline, children: [lookSens, opacity]),
             UIMenu(title: "", options: .displayInline, children: [releaseLock, reload, reset]),
