@@ -38,12 +38,35 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
     private let motion = CMMotionManager()
     private var lastMotionTimestamp: TimeInterval = 0
 
+    // Con trỏ chuột kiểu Windows (khi có chuột và chưa vào game)
+    private let cursorView = CursorView()
+    private var cursorPos = CGPoint.zero
+    private var cursorStarted = false
+    private var cursorDirty = false
+    private var pendingScroll = CGPoint.zero
+
+    /// Tốc độ con trỏ chuột Windows (1.0 = mặc định). Tăng nếu thấy con trỏ chậm.
+    private let cursorSpeed: CGFloat = 1.0
+
+    /// Tốc độ cuộn bằng con lăn chuột
+    private let scrollSpeed: CGFloat = 30
+
+    /// Có chuột thật đang kết nối
+    private var hasMouse = false
+
+    /// Chống "tự bấm chuột": thời điểm bắt đầu khóa chuột + các nút đã thật sự được nhấn trong lúc khóa
+    private var captureStart: TimeInterval = 0
+    private var downButtons: Set<Int> = []
+
     /// true khi trang web (game) đang xin khóa chuột
     private var isMouseCaptured = false {
         didSet {
             guard oldValue != isMouseCaptured else { return }
-            if !isMouseCaptured { pendingDX = 0; pendingDY = 0 }
+            pendingDX = 0; pendingDY = 0
+            downButtons.removeAll()
+            if isMouseCaptured { captureStart = CACurrentMediaTime() }
             setNeedsUpdateOfPrefersPointerLocked()
+            updateCursorVisibility()
             applyPadState()
         }
     }
@@ -60,7 +83,8 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
 
     override var prefersStatusBarHidden: Bool { true }
     override var prefersHomeIndicatorAutoHidden: Bool { true }
-    override var prefersPointerLocked: Bool { isMouseCaptured }
+    /// Có chuột là khóa luôn con trỏ hệ thống (ẩn nó đi) và app tự vẽ con trỏ kiểu Windows.
+    override var prefersPointerLocked: Bool { isMouseCaptured || hasMouse }
     override var supportedInterfaceOrientations: UIInterfaceOrientationMask { .all }
 
     // MARK: - Vòng đời
@@ -122,6 +146,7 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
         overlay.reload()
 
         setupGearButton()
+        view.addSubview(cursorView)     // luôn nằm trên cùng
         setupMouse()
 
         // Gửi chuyển động chuột/gyro/vuốt vào trang theo nhịp màn hình (tối đa 120Hz)
@@ -142,6 +167,20 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         setNeedsUpdateOfHomeIndicatorAutoHidden()
+        setNeedsUpdateOfPrefersPointerLocked()
+    }
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        let w = view.bounds.width, h = view.bounds.height
+        guard w > 0, h > 0 else { return }
+        if !cursorStarted {
+            cursorStarted = true
+            cursorPos = CGPoint(x: w / 2, y: h / 2)
+        }
+        cursorPos.x = min(max(cursorPos.x, 0), w - 1)
+        cursorPos.y = min(max(cursorPos.y, 0), h - 1)
+        cursorView.place(at: cursorPos)
     }
 
     @objc private func appWillResign() {
@@ -154,9 +193,13 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
     func applyPadState() {
         guard isViewLoaded else { return }
         let s = PadStore.shared.settings
-        let show = s.enabled && (isMouseCaptured || padEditing)
-        if !show { overlay.reset(notify: false) }
+        // Bật là hiện ngay. Chỉ nhận cảm ứng khi đang trong game (hoặc đang chỉnh sửa);
+        // còn ở menu GFN thì cảm ứng đi xuyên xuống trang web như bình thường.
+        let show = s.enabled
+        let interactive = show && (isMouseCaptured || padEditing)
+        if !interactive { overlay.reset(notify: false) }
         overlay.isHidden = !show
+        overlay.isUserInteractionEnabled = interactive
         overlay.alpha = padEditing ? 1 : s.opacity
         updateGyro()
         refreshMenu()
@@ -232,44 +275,137 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
             forName: .GCMouseDidConnect, object: nil, queue: .main
         ) { [weak self] note in
             if let mouse = note.object as? GCMouse { self?.bind(mouse) }
+            self?.refreshMouseState()
+        }
+        NotificationCenter.default.addObserver(
+            forName: .GCMouseDidDisconnect, object: nil, queue: .main
+        ) { [weak self] _ in
+            self?.refreshMouseState()
         }
         GCMouse.mice().forEach { bind($0) }
+        refreshMouseState()
+    }
+
+    /// Cập nhật khi cắm / rút chuột: có chuột thì hiện con trỏ Windows và khóa con trỏ hệ thống
+    private func refreshMouseState() {
+        hasMouse = !GCMouse.mice().isEmpty
+        setNeedsUpdateOfPrefersPointerLocked()
+        updateCursorVisibility()
+    }
+
+    private func updateCursorVisibility() {
+        cursorView.isHidden = !(hasMouse && !isMouseCaptured)
+        if !cursorView.isHidden { cursorView.place(at: cursorPos) }
     }
 
     private func bind(_ mouse: GCMouse) {
         guard let input = mouse.mouseInput else { return }
 
         input.mouseMovedHandler = { [weak self] _, dx, dy in
-            guard let self, self.isMouseCaptured else { return }
-            self.pendingDX += CGFloat(dx) * self.mouseSensitivity
-            // GCMouse: trục Y dương là hướng LÊN, còn web thì dương là xuống
-            self.pendingDY += CGFloat(dy) * self.mouseSensitivity * (self.negateY ? -1 : 1)
+            guard let self else { return }
+            // GCMouse: trục Y dương là hướng LÊN, còn web / màn hình thì dương là xuống
+            let y = CGFloat(dy) * (self.negateY ? -1 : 1)
+            if self.isMouseCaptured {
+                self.pendingDX += CGFloat(dx) * self.mouseSensitivity
+                self.pendingDY += y * self.mouseSensitivity
+            } else {
+                self.moveCursor(dx: CGFloat(dx) * self.cursorSpeed, dy: y * self.cursorSpeed)
+            }
         }
         input.leftButton.pressedChangedHandler = { [weak self] _, _, pressed in
-            self?.sendButton(0, pressed)
+            self?.mouseButton(0, pressed)
         }
         input.rightButton?.pressedChangedHandler = { [weak self] _, _, pressed in
-            self?.sendButton(2, pressed)
+            self?.mouseButton(2, pressed)
         }
         input.middleButton?.pressedChangedHandler = { [weak self] _, _, pressed in
-            self?.sendButton(1, pressed)
+            self?.mouseButton(1, pressed)
         }
         if let aux = input.auxiliaryButtons {
             for (i, button) in aux.enumerated() {
                 button.pressedChangedHandler = { [weak self] _, _, pressed in
-                    self?.sendButton(3 + i, pressed)
+                    self?.mouseButton(3 + i, pressed)
                 }
             }
+        }
+        // Con lăn chuột: cuộn trang khi dùng con trỏ Windows
+        input.scroll.valueChangedHandler = { [weak self] _, x, y in
+            guard let self, !self.isMouseCaptured else { return }
+            self.pendingScroll.x += CGFloat(x) * self.scrollSpeed
+            self.pendingScroll.y -= CGFloat(y) * self.scrollSpeed
+        }
+    }
+
+    // MARK: Con trỏ chuột kiểu Windows
+
+    private func moveCursor(dx: CGFloat, dy: CGFloat) {
+        let w = view.bounds.width, h = view.bounds.height
+        guard w > 0, h > 0 else { return }
+        cursorPos.x = min(max(cursorPos.x + dx, 0), w - 1)
+        cursorPos.y = min(max(cursorPos.y + dy, 0), h - 1)
+        cursorView.place(at: cursorPos)
+        cursorDirty = true
+    }
+
+    /// Vị trí con trỏ dạng tỉ lệ 0...1 (JS tự đổi ra pixel của trang)
+    private var cursorNorm: (CGFloat, CGFloat) {
+        (cursorPos.x / max(view.bounds.width, 1), cursorPos.y / max(view.bounds.height, 1))
+    }
+
+    private func sendCursorButton(_ button: Int, _ pressed: Bool) {
+        let (nx, ny) = cursorNorm
+        cursorDirty = false
+        let pos = String(format: "%.5f,%.5f", nx, ny)
+        webView.evaluateJavaScript(
+            "window.__gfnMouse&&window.__gfnMouse.cursorButton(\(pos),\(button),\(pressed ? "true" : "false"))"
+        )
+    }
+
+    /// Mọi lần bấm chuột đều đi qua đây
+    private func mouseButton(_ button: Int, _ pressed: Bool) {
+        if isMouseCaptured {
+            // Trong game: chống "tự bấm chuột phải" ngay lúc vừa vào session
+            if pressed {
+                if button != 0, CACurrentMediaTime() - captureStart < 0.4 { return }
+                guard !downButtons.contains(button) else { return }
+                downButtons.insert(button)
+                sendButton(button, true)
+            } else {
+                // Chỉ nhả nút nếu trước đó đã thật sự nhấn nút này trong game
+                guard downButtons.contains(button) else { return }
+                downButtons.remove(button)
+                sendButton(button, false)
+            }
+        } else if hasMouse {
+            sendCursorButton(button, pressed)
         }
     }
 
     @objc private func flushMouse() {
-        guard isMouseCaptured, pendingDX != 0 || pendingDY != 0 else { return }
-        let dx = pendingDX, dy = pendingDY
-        pendingDX = 0; pendingDY = 0
-        webView.evaluateJavaScript(
-            String(format: "window.__gfnMouse&&window.__gfnMouse.move(%.2f,%.2f)", dx, dy)
-        )
+        if isMouseCaptured {
+            guard pendingDX != 0 || pendingDY != 0 else { return }
+            let dx = pendingDX, dy = pendingDY
+            pendingDX = 0; pendingDY = 0
+            webView.evaluateJavaScript(
+                String(format: "window.__gfnMouse&&window.__gfnMouse.move(%.2f,%.2f)", dx, dy)
+            )
+            return
+        }
+        guard hasMouse else { return }
+        let (nx, ny) = cursorNorm
+        if pendingScroll != .zero {
+            let sx = pendingScroll.x, sy = pendingScroll.y
+            pendingScroll = .zero
+            cursorDirty = false
+            webView.evaluateJavaScript(
+                String(format: "window.__gfnMouse&&window.__gfnMouse.cursorWheel(%.5f,%.5f,%.2f,%.2f)", nx, ny, sx, sy)
+            )
+        } else if cursorDirty {
+            cursorDirty = false
+            webView.evaluateJavaScript(
+                String(format: "window.__gfnMouse&&window.__gfnMouse.cursorMove(%.5f,%.5f)", nx, ny)
+            )
+        }
     }
 
     private func sendButton(_ button: Int, _ pressed: Bool) {
@@ -392,7 +528,10 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
           get: function () { return lockEl; }, configurable: true
         });
         Element.prototype.requestPointerLock = function () {
+          // Nhả mọi nút của con trỏ Windows trước khi vào chế độ khóa (chống kẹt nút chuột)
+          try { window.__gfnMouse && window.__gfnMouse.cursorReset(); } catch (e) {}
           lockEl = this; buttonsMask = 0;
+          pressedButtons = {};
           post(true); fireLockChange();
           return Promise.resolve();
         };
@@ -479,7 +618,163 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
         buttonsMask = 0;
       }
 
+      // ===== 3. Con trỏ chuột kiểu Windows (khi chưa khóa chuột / chưa vào game) =====
+      var cur = { x: 0, y: 0, el: null, downEl: null, pressed: {}, mask: 0, clicks: 0, lastT: 0, lastEl: null };
+
+      function curEl() { return document.elementFromPoint(cur.x, cur.y) || document.body; }
+
+      function curFire(type, el, init) {
+        var base = {
+          bubbles: true, cancelable: true, composed: true, view: window,
+          clientX: cur.x, clientY: cur.y, screenX: cur.x, screenY: cur.y,
+          buttons: cur.mask
+        };
+        for (var k in init) base[k] = init[k];
+        var ev;
+        if (type.indexOf('pointer') === 0 && window.PointerEvent) {
+          base.pointerType = 'mouse'; base.pointerId = 1; base.isPrimary = true;
+          ev = new PointerEvent(type, base);
+        } else if (type === 'wheel') {
+          ev = new WheelEvent(type, base);
+        } else {
+          ev = new MouseEvent(type, base);
+        }
+        el.dispatchEvent(ev);
+        return ev;
+      }
+
+      function ancestors(el) {
+        var a = [];
+        while (el) { a.push(el); el = el.parentNode || el.host; }
+        return a;
+      }
+
+      function curHover(next) {
+        var prev = cur.el;
+        if (prev === next) return;
+        var pa = prev ? ancestors(prev) : [], na = ancestors(next);
+        if (prev) {
+          curFire('pointerout', prev, { relatedTarget: next });
+          curFire('mouseout', prev, { relatedTarget: next });
+          pa.forEach(function (n) {
+            if (n.nodeType === 1 && na.indexOf(n) < 0) {
+              curFire('pointerleave', n, { bubbles: false, relatedTarget: next });
+              curFire('mouseleave', n, { bubbles: false, relatedTarget: next });
+            }
+          });
+        }
+        curFire('pointerover', next, { relatedTarget: prev });
+        curFire('mouseover', next, { relatedTarget: prev });
+        na.slice().reverse().forEach(function (n) {
+          if (n.nodeType === 1 && pa.indexOf(n) < 0) {
+            curFire('pointerenter', n, { bubbles: false, relatedTarget: prev });
+            curFire('mouseenter', n, { bubbles: false, relatedTarget: prev });
+          }
+        });
+        cur.el = next;
+      }
+
+      function focusFor(el) {
+        var n = el;
+        while (n && n !== document.body && n !== document.documentElement) {
+          if (n.matches && n.matches('input,textarea,select,button,a[href],[tabindex],[contenteditable=""],[contenteditable="true"]')) {
+            try { n.focus(); } catch (e) {}
+            return;
+          }
+          n = n.parentNode || n.host;
+        }
+        try { if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); } catch (e) {}
+      }
+
+      function scrollableAt(el, dx, dy) {
+        var n = el;
+        while (n && n !== document.body && n !== document.documentElement) {
+          if (n.nodeType === 1) {
+            var cs = getComputedStyle(n);
+            var oy = /(auto|scroll)/.test(cs.overflowY) && n.scrollHeight > n.clientHeight;
+            var ox = /(auto|scroll)/.test(cs.overflowX) && n.scrollWidth > n.clientWidth;
+            if ((dy && oy) || (dx && ox)) return n;
+          }
+          n = n.parentNode || n.host;
+        }
+        return document.scrollingElement || document.documentElement;
+      }
+
+      function setCur(nx, ny) {
+        cur.x = nx * window.innerWidth;
+        cur.y = ny * window.innerHeight;
+      }
+
+      function btnBit(b) { return b === 0 ? 1 : b === 2 ? 2 : b === 1 ? 4 : (8 << (b - 3)); }
+
+      function cursorUp(b, el) {
+        cur.mask &= ~btnBit(b);
+        delete cur.pressed[b];
+        curFire('pointerup', el, { button: b });
+        curFire('mouseup', el, { button: b });
+      }
+
       window.__gfnMouse = {
+        cursorMove: function (nx, ny) {
+          if (lockEl) return;
+          setCur(nx, ny);
+          var el = curEl();
+          curHover(el);
+          var t = cur.downEl || el;
+          curFire('pointermove', t, {});
+          curFire('mousemove', t, {});
+        },
+        cursorButton: function (nx, ny, b, down) {
+          if (lockEl) return;
+          setCur(nx, ny);
+          var el = curEl();
+          curHover(el);
+          if (down) {
+            if (cur.pressed[b]) return;
+            cur.pressed[b] = true;
+            cur.mask |= btnBit(b);
+            if (!cur.downEl) cur.downEl = el;
+            curFire('pointerdown', el, { button: b });
+            var md = curFire('mousedown', el, { button: b });
+            if (b === 0 && !md.defaultPrevented) focusFor(el);
+          } else {
+            if (!cur.pressed[b]) return;
+            var t = cur.downEl || el;
+            cursorUp(b, el);
+            // click chỉ khi nhả gần chỗ đã nhấn (giống trình duyệt thật)
+            var target = t === el ? el : (t.contains && t.contains(el)) ? t : (el.contains && el.contains(t)) ? el : null;
+            if (target) {
+              if (b === 0) {
+                var now = Date.now();
+                cur.clicks = (cur.lastEl === target && now - cur.lastT < 400) ? cur.clicks + 1 : 1;
+                cur.lastT = now; cur.lastEl = target;
+                curFire('click', target, { button: 0, detail: cur.clicks });
+                if (cur.clicks === 2) curFire('dblclick', target, { button: 0, detail: 2 });
+              } else {
+                if (b === 2) curFire('contextmenu', target, { button: 2 });
+                curFire('auxclick', target, { button: b });
+              }
+            }
+            if (cur.mask === 0) cur.downEl = null;
+          }
+        },
+        cursorWheel: function (nx, ny, dx, dy) {
+          if (lockEl) return;
+          setCur(nx, ny);
+          var el = curEl();
+          var ev = curFire('wheel', el, { deltaX: dx, deltaY: dy, deltaMode: 0 });
+          if (!ev.defaultPrevented) {
+            var s = scrollableAt(el, dx, dy);
+            if (s) s.scrollBy(dx, dy);
+          }
+        },
+        // Nhả mọi nút của con trỏ Windows (không click) – dùng khi chuyển sang chế độ khóa chuột
+        cursorReset: function () {
+          var el = cur.downEl || cur.el || document.body;
+          Object.keys(cur.pressed).forEach(function (b) { cursorUp(Number(b), el); });
+          cur.mask = 0; cur.downEl = null; cur.pressed = {};
+        },
+
         move: function (dx, dy) {
           if (!lockEl) return;
           fire('pointermove', { movementX: dx, movementY: dy });
