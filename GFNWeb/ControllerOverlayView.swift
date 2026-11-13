@@ -91,6 +91,8 @@ final class ControllerOverlayView: UIView {
     // Gửi ra ngoài
     var onLook: ((CGFloat, CGFloat) -> Void)?
     var onAction: ((PadAction, Bool) -> Void)?
+    /// Độ lệch joystick đi đã chuẩn hóa: x, y trong [-1, 1], y dương = kéo xuống (dùng cho cần gạt trái của tay cầm ảo)
+    var onJoystick: ((CGFloat, CGFloat) -> Void)?
     var onEditButton: ((UUID, UIView) -> Void)?
     var onEditJoystick: ((UIView) -> Void)?
 
@@ -257,6 +259,7 @@ final class ControllerOverlayView: UIView {
         aimHeld = false
         buttonViews.values.forEach { $0.setPressed(false) }
         joystick.setOffset(.zero)
+        if notify { onJoystick?(0, 0) }
         lookDot.isHidden = true
         lookTotal = .zero
     }
@@ -296,6 +299,7 @@ final class ControllerOverlayView: UIView {
         let len = hypot(dx, dy)
         let scale = len > r ? r / len : 1
         joystick.setOffset(CGPoint(x: dx * scale, y: dy * scale))
+        onJoystick?(joystick.offset.x / max(r, 1), joystick.offset.y / max(r, 1))
         updateJoystickKeys()
     }
 
@@ -411,6 +415,7 @@ final class ControllerOverlayView: UIView {
                 lookDot.isHidden = true
             case .joystick:
                 joystick.setOffset(.zero)
+                onJoystick?(0, 0)
                 updateJoystickKeys()
             case .button(let id):
                 buttonViews[id]?.setPressed(false)
