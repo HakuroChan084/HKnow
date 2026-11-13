@@ -99,9 +99,6 @@ final class ControllerOverlayView: UIView {
     /// Đang giữ nút chuột phải (dùng cho gyro "chỉ khi ngắm")
     private(set) var aimHeld = false
 
-    /// true = chạm ra ngoài các nút / joystick thì cảm ứng đi xuyên xuống trang web (dùng ngoài game)
-    var passthroughOutsideControls = false
-
     /// true = hiện phản hồi trực quan (chấm theo ngón tay, chữ báo thao tác) để thử cảm ứng ngoài game
     var feedback = false {
         didSet {
@@ -179,11 +176,13 @@ final class ControllerOverlayView: UIView {
 
     // MARK: Nhận cảm ứng
 
+    /// Chưa bật bộ điều khiển (overlay ẩn): trả nil => MỌI cú chạm đi thẳng xuống WKWebView.
+    /// Đã bật: overlay nuốt toàn bộ cảm ứng NGÓN TAY => không có chạm/tap/giữ nào lọt xuống trang web
+    /// => không thể "cướp cò" bắn nhầm. Chuột/trackpad thật vẫn đi xuyên xuống để bấm menu;
+    /// trong game thì JS đã chặn sự kiện chuột thật (isTrusted) khi đang khóa chuột.
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
         guard !isHidden, alpha > 0.01, isUserInteractionEnabled else { return nil }
-        // Chuột / trackpad luôn đi xuyên xuống trang web (trừ lúc chỉnh sửa bố cục)
         if !editing, let t = event?.allTouches?.first, t.type == .indirectPointer { return nil }
-        if passthroughOutsideControls, !editing, buttonID(at: point) == nil, !joystickHit(point) { return nil }
         return super.hitTest(point, with: event)
     }
 
@@ -273,13 +272,13 @@ final class ControllerOverlayView: UIView {
     private func buttonID(at p: CGPoint) -> UUID? {
         for b in PadStore.shared.settings.buttons.reversed() {
             guard let view = buttonViews[b.id] else { continue }
-            if hypot(p.x - view.center.x, p.y - view.center.y) <= b.size / 2 + 8 { return b.id }
+            if hypot(p.x - view.center.x, p.y - view.center.y) <= b.size / 2 { return b.id }
         }
         return nil
     }
 
     private func joystickHit(_ p: CGPoint) -> Bool {
-        hypot(p.x - joystick.center.x, p.y - joystick.center.y) <= joystick.radius * 1.3
+        hypot(p.x - joystick.center.x, p.y - joystick.center.y) <= joystick.radius
     }
 
     private func recomputeAim() {
@@ -329,6 +328,8 @@ final class ControllerOverlayView: UIView {
 
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
         for t in touches {
+            // Chuột / trackpad: đã bị nuốt ở hitTest, không được điều khiển nút hay xoay camera
+            if !editing, t.type == .indirectPointer { continue }
             let p = t.location(in: self)
             if editing {
                 if let id = buttonID(at: p) {

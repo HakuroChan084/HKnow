@@ -123,6 +123,14 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
         didSet { applyPadState() }
     }
 
+    /// Bộ điều khiển ảo đang bật và dùng tay cầm: nút/joystick/vuốt/gyro chạy NGAY, không cần đợi game khóa chuột
+    private var padLive: Bool {
+        PadStore.shared.settings.enabled && inputMode.usesPad && !padEditing
+    }
+
+    /// Có được gửi input vào trang không: đã khóa chuột (game đang bắt chuột) HOẶC tay cầm ảo đang hoạt động
+    private var inputLive: Bool { isMouseCaptured || padLive }
+
     /// Đang ở chế độ chỉnh sửa bố cục nút
     var padEditing = false {
         didSet {
@@ -235,17 +243,19 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
     func applyPadState() {
         guard isViewLoaded else { return }
         let s = PadStore.shared.settings
-        // Bật là hiện ngay và LUÔN nhận cảm ứng (kể cả ngoài game để thử).
-        // Ngoài game: chạm ra ngoài nút/joystick thì đi xuyên xuống trang web, trừ khi bật "Thử vuốt".
+        // TẮT: overlay ẩn hẳn (hitTest trả nil) => mọi chạm/vuốt đi thẳng xuống WKWebView.
+        // BẬT: hiện nút ngay; overlay nuốt toàn bộ cảm ứng: nút/joystick chỉ nhận trong hình tròn,
+        //      phần còn lại chỉ để vuốt xoay camera (cần gạt phải), không bao giờ thành click chuột.
         let show = s.enabled
         if !show {
-            overlay.reset(notify: false)
+            overlay.reset(notify: true)     // nhả mọi nút/phím đang giữ, đưa cần gạt về 0
             sendLeft(0, 0)
+            pendingDX = 0; pendingDY = 0
+            resetStick()
         }
         overlay.isHidden = !show
         overlay.isUserInteractionEnabled = show
-        overlay.passthroughOutsideControls = !(isMouseCaptured || padEditing || padTestMode)
-        overlay.feedback = !isMouseCaptured
+        overlay.feedback = !isMouseCaptured || padTestMode
         overlay.alpha = padEditing ? 1 : s.opacity
         updateGyro()
         refreshMenu()
@@ -268,7 +278,7 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
     }
 
     private func addLook(_ dx: CGFloat, _ dy: CGFloat) {
-        guard isMouseCaptured else { return }
+        guard inputLive else { return }
         let k = PadStore.shared.settings.lookSensitivity
         pendingDX += dx * k
         pendingDY += dy * k
@@ -289,7 +299,7 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
 
     func updateGyro() {
         let s = PadStore.shared.settings
-        let wanted = s.enabled && s.gyroMode != .off && isMouseCaptured && !padEditing && motion.isDeviceMotionAvailable
+        let wanted = s.enabled && s.gyroMode != .off && inputLive && !padEditing && motion.isDeviceMotionAvailable
         if wanted, !motion.isDeviceMotionActive {
             lastMotionTimestamp = 0
             motion.deviceMotionUpdateInterval = 1.0 / 120.0
@@ -309,7 +319,7 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
         dt = min(max(dt, 0), 0.05)
 
         if s.gyroMode == .whileAiming && !overlay.aimHeld { return }
-        guard isMouseCaptured else { return }
+        guard inputLive else { return }
 
         let rr = m.rotationRate
         let g = m.gravity
@@ -421,7 +431,7 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
         let dt = min(max(lastFlushTime == 0 ? 1.0 / 120.0 : t - lastFlushTime, 1.0 / 240.0), 0.05)
         lastFlushTime = t
 
-        guard isMouseCaptured else { return }
+        guard inputLive else { return }
         let dx = pendingDX, dy = pendingDY
         pendingDX = 0; pendingDY = 0
         let mode = inputMode
@@ -468,7 +478,7 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
 
     /// Joystick đi (analog) -> cần gạt trái (axes[0], axes[1]). x, y trong [-1, 1], y dương = xuống.
     private func sendLeft(_ x: CGFloat, _ y: CGFloat) {
-        guard isMouseCaptured, inputMode.usesPad else { return }
+        guard inputLive, inputMode.usesPad else { return }
         var lx = x, ly = y
         let mag = hypot(lx, ly)
         if mag < 0.05 {
@@ -486,14 +496,14 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
     }
 
     private func sendButton(_ button: Int, _ pressed: Bool) {
-        guard isMouseCaptured else { return }
+        guard inputLive else { return }
         webView.evaluateJavaScript(
             "window.__gfnMouse&&window.__gfnMouse.button(\(button),\(pressed ? "true" : "false"))"
         )
     }
 
     private func sendKey(_ spec: KeySpec, _ down: Bool) {
-        guard isMouseCaptured else { return }
+        guard inputLive else { return }
         let js = "window.__gfnMouse&&window.__gfnMouse.key(\"\(spec.key)\",\"\(spec.code)\",\(spec.keyCode),\(down ? "true" : "false"))"
         webView.evaluateJavaScript(js)
     }
@@ -513,7 +523,7 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-        // Trang mới = ngữ cảnh JS mới, cần gửi lại cấu hình
+        // Trang mới = ngữ cảnh JS mới: gửi lại cấu hình => tay cầm ảo được cắm ngay (không đợi Pointer Lock)
         pushInputConfig()
     }
 
@@ -610,7 +620,7 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
       var mods = { shift: false, ctrl: false, alt: false };
 
       // Cấu hình do Swift đẩy vào qua config(): dùng tay cầm ảo và/hoặc chuột-phím tổng hợp
-      var mode = { pad: true, kbm: false };
+      var mode = { pad: true, kbm: false };   // mặc định dùng tay cầm; Swift sẽ gửi lại qua config()
 
       function post(v) {
         try { window.webkit.messageHandlers.gfnLock.postMessage(!!v); } catch (e) {}
@@ -630,7 +640,7 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
           lockEl = this; buttonsMask = 0;
           pressedButtons = {};
           ensureFocus();
-          syncPad();                 // cắm tay cầm ảo NGAY khi khóa chuột
+          syncPad();                 // (tay cầm đã cắm từ lúc tải trang; gọi lại cho chắc)
           post(true); fireLockChange();
           return Promise.resolve();
         };
@@ -638,7 +648,7 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
           if (!lockEl) return;
           releaseAll();
           lockEl = null; buttonsMask = 0;
-          syncPad();                 // rút tay cầm ảo
+          syncPad();                 // tay cầm vẫn cắm; chỉ rút khi đổi sang chế độ Chuột + Phím
           post(false); fireLockChange();
         };
       } catch (e) {}
@@ -874,8 +884,16 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
         }
         return ev;
       }
+      var padAnnounced = false;      // đã phát gamepadconnected thật cho trang (để không phát bù trùng)
       function emitPadEvent(type, snap) {
-        setTimeout(function () { window.dispatchEvent(makeGamepadEvent(type, snap)); }, 0);
+        if (type === 'gamepaddisconnected') padAnnounced = false;
+        setTimeout(function () {
+          if (type === 'gamepadconnected') {
+            if (!padOn) return;                       // đã rút trước khi kịp phát
+            padAnnounced = true;
+          }
+          window.dispatchEvent(makeGamepadEvent(type, snap));
+        }, 0);
       }
 
       // Nếu GFN đăng ký lắng nghe 'gamepadconnected' SAU khi tay cầm ảo đã cắm thì gọi bù một lần
@@ -883,7 +901,7 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
         var addL = EventTarget.prototype.addEventListener;
         EventTarget.prototype.addEventListener = function (type, fn) {
           var r = addL.apply(this, arguments);
-          if (type === 'gamepadconnected' && fn && padOn && padSnap &&
+          if (type === 'gamepadconnected' && fn && padOn && padAnnounced && padSnap &&
               (this === window || this === undefined || this === null)) {
             setTimeout(function () {
               if (!padOn || !padSnap) return;
@@ -899,8 +917,15 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
       } catch (e) {}
 
       // Cắm / rút tay cầm ảo: cắm khi (dùng chế độ tay cầm) VÀ (đang khóa chuột)
+      // Tay cầm ảo được cắm ngay khi trang tải xong (nếu chế độ có dùng tay cầm), không cần Pointer Lock
+      var pageReady = (document.readyState !== 'loading');
+      if (!pageReady) {
+        document.addEventListener('DOMContentLoaded', function () { pageReady = true; syncPad(); }, { once: true });
+        window.addEventListener('load', function () { pageReady = true; syncPad(); }, { once: true });
+      }
+
       function syncPad() {
-        var want = !!(mode.pad && lockEl);
+        var want = !!(mode.pad && pageReady);
         if (want === padOn) return;
         if (want) {
           padOn = true; padSnap = null; padTs = now();
@@ -946,11 +971,11 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
           fire('mousemove', { movementX: dx, movementY: dy });
         },
         button: function (b, down) {
-          if (!lockEl) return;
+          if (!lockEl && !padOn) return;
           var bit = b === 0 ? 1 : b === 2 ? 2 : b === 1 ? 4 : (8 << (b - 3));
           if (down) { buttonsMask |= bit; pressedButtons[b] = true; }
           else { buttonsMask &= ~bit; delete pressedButtons[b]; }
-          if (mode.kbm) {
+          if (mode.kbm && lockEl) {
             ensureFocus();
             fire(down ? 'pointerdown' : 'pointerup', { button: b });
             fire(down ? 'mousedown' : 'mouseup', { button: b });
@@ -958,7 +983,7 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
           if (padOn) recomputePad();
         },
         key: function (key, code, keyCode, down) {
-          if (!lockEl) return;
+          if (!lockEl && !padOn) return;
           if (down) {
             if (downKeys[code]) return;
             downKeys[code] = [key, keyCode];
@@ -967,7 +992,7 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
             delete downKeys[code];
           }
           setMod(code, down);
-          if (mode.kbm) {
+          if (mode.kbm && lockEl) {
             ensureFocus();
             fireKey(down ? 'keydown' : 'keyup', key, code, keyCode);
           }
@@ -994,6 +1019,9 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
           };
         }
       };
+
+      // Cắm tay cầm ảo ngay nếu trang đã sẵn sàng (nếu chưa: DOMContentLoaded / load / config() từ Swift sẽ cắm)
+      syncPad();
     })();
     """#
 }
