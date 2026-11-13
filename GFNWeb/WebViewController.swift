@@ -363,8 +363,14 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
           var s = String(q).replace(/\s+/g, '');
           if (/^\((any-)?(pointer:coarse|pointer:none|hover:none)\)$/.test(s)) return _mm('not all');
           if (/^\((any-)?(pointer:fine|hover:hover)\)$/.test(s)) return _mm('all');
+          // Giả làm web app đã "Thêm vào Màn hình chính" (chế độ standalone)
+          if (/^\(display-mode:(standalone|fullscreen)\)$/.test(s)) return _mm('all');
+          if (/^\(display-mode:browser\)$/.test(s)) return _mm('not all');
           return _mm(String(q));
         };
+      } catch (e) {}
+      try {
+        Object.defineProperty(Navigator.prototype, 'standalone', { get: function () { return true; }, configurable: true });
       } catch (e) {}
 
       // ===== 2. Pointer Lock giả + chuột/phím do app gửi vào =====
