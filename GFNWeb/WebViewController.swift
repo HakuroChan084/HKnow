@@ -313,8 +313,10 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
     private func pushInputConfig() {
         guard let wv = webView else { return }
         let m = inputMode
+        // Chế độ Chuột / Launcher: tay cầm Xbox ảo LUÔN cắm (không rút), và JS ngừng chặn chạm / chuột thật
+        let launcher = (controlMode == .mouse)
         wv.evaluateJavaScript(
-            "window.__gfnMouse&&window.__gfnMouse.config({pad:\(m.usesPad),kbm:\(m.usesKBM)})"
+            "window.__gfnMouse&&window.__gfnMouse.config({pad:\(m.usesPad || launcher),kbm:\(m.usesKBM && !launcher),launcher:\(launcher)})"
         )
     }
 
@@ -742,7 +744,7 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
       var mods = { shift: false, ctrl: false, alt: false };
 
       // Cấu hình do Swift đẩy vào qua config(): dùng tay cầm ảo và/hoặc chuột-phím tổng hợp
-      var mode = { pad: true, kbm: false };   // mặc định dùng tay cầm; Swift sẽ gửi lại qua config()
+      var mode = { pad: true, kbm: false, launcher: false };   // mặc định dùng tay cầm; Swift sẽ gửi lại qua config()
 
       function post(v) {
         try { window.webkit.messageHandlers.gfnLock.postMessage(!!v); } catch (e) {}
@@ -759,6 +761,12 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
           get: function () { return lockEl; }, configurable: true
         });
         Element.prototype.requestPointerLock = function () {
+          if (mode.launcher) {       // chế độ Launcher: từ chối khóa chuột => GFN dùng toạ độ tuyệt đối, chạm đâu bấm đó
+            setTimeout(function () { document.dispatchEvent(new Event('pointerlockerror')); }, 0);
+            var err = window.DOMException ? new DOMException('Pointer lock is disabled in launcher mode', 'NotAllowedError')
+                                        : new Error('Pointer lock is disabled in launcher mode');
+            return Promise.reject(err);
+          }
           lockEl = this; buttonsMask = 0;
           pressedButtons = {};
           ensureFocus();
@@ -779,7 +787,8 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
       ['mousemove', 'mousedown', 'mouseup', 'click', 'dblclick', 'auxclick', 'contextmenu',
        'pointermove', 'pointerdown', 'pointerup'].forEach(function (t) {
         window.addEventListener(t, function (e) {
-          if (lockEl && e.isTrusted) { e.stopImmediatePropagation(); e.preventDefault(); }
+          // Chế độ Launcher: KHÔNG chặn, để cú chạm thật (isTrusted) tới tay GFN
+          if (lockEl && !mode.launcher && e.isTrusted) { e.stopImmediatePropagation(); e.preventDefault(); }
         }, true);
       });
 
@@ -1210,8 +1219,12 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
           var wasKbm = mode.kbm;
           mode.pad = !!(c && c.pad);
           mode.kbm = !!(c && c.kbm);
+          var wasLauncher = mode.launcher;
+          mode.launcher = !!(c && c.launcher);
           if (wasKbm && !mode.kbm) releaseKbmHeld();
-          syncPad();
+          syncPad();                                   // tay cầm ảo vẫn cắm ở chế độ Launcher
+          // Vào chế độ Launcher: thả khóa chuột đang giữ để GFN chuyển sang toạ độ tuyệt đối
+          if (mode.launcher && !wasLauncher && lockEl) document.exitPointerLock();
         },
         // Độ dời thô (pixel) -> sự kiện chuột tổng hợp
         move: function (dx, dy) {

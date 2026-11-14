@@ -628,10 +628,25 @@ final class TopBarView: UIView {
 
 // MARK: - Bảng cài đặt kiểu gaming
 
+/// UIScrollView ưu tiên điều khiển bên trong: kéo thanh trượt / bấm nút không bị cuộn dọc cướp cảm ứng
+final class PanelScrollView: UIScrollView {
+    override func touchesShouldCancel(in view: UIView) -> Bool {
+        if view is UIControl { return false }
+        return super.touchesShouldCancel(in: view)
+    }
+}
+
+extension GamingPanelView: UIGestureRecognizerDelegate {
+    /// Cú chạm nền chỉ tính khi chạm ngoài khung bảng
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+        !cardContains(touch.location(in: self))
+    }
+}
+
 final class GamingPanelView: UIView {
     private unowned let host: WebViewController
     private let card = UIView()
-    private let scroll = UIScrollView()
+    private let scroll = PanelScrollView()
     private let stack = UIStackView()
     private var modeSegment: UISegmentedControl?
 
@@ -647,7 +662,11 @@ final class GamingPanelView: UIView {
 
     private func build() {
         backgroundColor = UIColor.black.withAlphaComponent(0.4)
-        addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(backgroundTapped(_:))))
+        // Chạm nền (ngoài khung) để đóng: chỉ nhận cú chạm NGOÀI khung và không bao giờ cướp / hủy cảm ứng của thanh trượt
+        let bgTap = UITapGestureRecognizer(target: self, action: #selector(backgroundTapped(_:)))
+        bgTap.cancelsTouchesInView = false
+        bgTap.delegate = self
+        addGestureRecognizer(bgTap)
 
         card.backgroundColor = Neon.panel
         card.layer.cornerRadius = 18
@@ -699,6 +718,9 @@ final class GamingPanelView: UIView {
         scroll.translatesAutoresizingMaskIntoConstraints = false
         scroll.showsVerticalScrollIndicator = false
         scroll.alwaysBounceVertical = true
+        // UISlider / nút trong bảng nhận cảm ứng NGAY (không bị trễ 150ms) và không bị cuộn nuốt mất
+        scroll.delaysContentTouches = false
+        scroll.canCancelContentTouches = false
         card.addSubview(scroll)
 
         stack.axis = .vertical
@@ -738,6 +760,8 @@ final class GamingPanelView: UIView {
 
         populate()
     }
+
+    fileprivate func cardContains(_ p: CGPoint) -> Bool { card.frame.contains(p) }
 
     @objc private func backgroundTapped(_ g: UITapGestureRecognizer) {
         if !card.frame.contains(g.location(in: self)) { host.dismissSettingsPanel() }
@@ -779,7 +803,7 @@ final class GamingPanelView: UIView {
         }
         modeSegment = modes
         add(modes)
-        add(caption("Chiến đấu: hiện nút ảo, vùng trống để vuốt xoay camera. Chuột / Launcher: ẩn nút, chạm hoặc kéo ngón tay để rê và bấm chuột trong Steam / Epic."))
+        add(caption("Chiến đấu: hiện nút ảo, vùng trống để vuốt xoay camera. Chuột / Launcher: ẩn nút, chạm thẳng vào màn hình game để bấm Start / đăng nhập trong Steam / Epic (tay cầm ảo vẫn cắm)."))
         add(caption("Kiểu chạm ở chế độ Chuột"))
         add(segmented(["Con trỏ ảo", "Chạm gốc"], selected: s.mouseStyle == .virtualCursor ? 0 : 1) { i in
             PadStore.shared.settings.mouseStyle = (i == 0) ? .virtualCursor : .native
@@ -1001,6 +1025,7 @@ final class GamingPanelView: UIView {
         top.axis = .horizontal
 
         let slider = UISlider()
+        slider.isContinuous = true
         slider.minimumValue = lo
         slider.maximumValue = hi
         slider.value = value

@@ -300,13 +300,15 @@ struct PadSettings: Codable {
     var buttons: [PadButton] = PadSettings.defaultButtons
 
     // Chế độ Chuột / Launcher
-    var mouseStyle: MouseTouchStyle = .virtualCursor
+    // Mặc định "Chạm gốc": cú chạm thật (isTrusted) đi thẳng vào game, GFN tự đổi thành click chuột
+    var mouseStyle: MouseTouchStyle = .native
 
     init() {}
 
     private enum CodingKeys: String, CodingKey {
         case enabled, opacity, lookSensitivity, gyroMode, gyroSensitivity, gyroInvertX, gyroInvertY
-        case joyX, joyY, joySize, buttons, mouseStyle
+        case joyX, joyY, joySize, buttons
+        case mouseStyle = "mouseStyleV2"      // khóa mới: bỏ lựa chọn cũ (Con trỏ ảo) một lần để dùng mặc định Chạm gốc
     }
 
     /// Mọi trường đều tùy chọn: dữ liệu lưu từ bản cũ vẫn đọc được, trường mới lấy giá trị mặc định
