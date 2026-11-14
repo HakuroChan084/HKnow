@@ -243,7 +243,7 @@ class OverlayView(context: Context) : View(context) {
         val dx = x - prev[0]; val dy = y - prev[1]
         last[id] = floatArrayOf(x, y)
         if (hypot(x - s[0], y - s[1]) > 8f * d) dragged.add(id)
-        if (id in dragged) cancelLongPress()
+        if (id in dragged) cancelAddPress()
 
         when (role) {
             Role.Look -> onLook?.invoke(dx / d, dy / d)
@@ -274,7 +274,7 @@ class OverlayView(context: Context) : View(context) {
     }
 
     private fun finish(id: Int, cancelled: Boolean) {
-        cancelLongPress()
+        cancelAddPress()
         val role = roles.remove(id) ?: return
         val wasDragged = id in dragged
         dragged.remove(id); start.remove(id); last.remove(id)
@@ -306,7 +306,7 @@ class OverlayView(context: Context) : View(context) {
         invalidate()
     }
 
-    private fun cancelLongPress() {
+    private fun cancelAddPress() {
         longPressRunnable?.let { handler.removeCallbacks(it) }
         longPressRunnable = null
     }
@@ -345,7 +345,7 @@ class OverlayView(context: Context) : View(context) {
 
     /** Nhả mọi nút / phím đang giữ */
     fun reset(notify: Boolean) {
-        cancelLongPress()
+        cancelAddPress()
         if (notify) {
             for (c in heldJoy) joyKeys[c]?.let { onAction?.invoke(PadAction.Key(it), false) }
             for (r in roles.values) {
