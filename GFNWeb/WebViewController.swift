@@ -106,7 +106,7 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
 
     /// Bộ điều khiển ảo đang bật và dùng tay cầm: nút/joystick/vuốt/gyro chạy NGAY, không cần đợi game khóa chuột
     private var padLive: Bool {
-        PadStore.shared.settings.enabled && inputMode.usesPad && !padEditing && !overlay.hudHidden
+        PadStore.shared.settings.enabled && !PadStore.shared.settings.touchMouse && inputMode.usesPad && !padEditing && !overlay.hudHidden
     }
 
     /// Có được gửi input vào trang không: đã khóa chuột (game đang bắt chuột) HOẶC tay cầm ảo đang hoạt động
@@ -234,7 +234,8 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
         // TẮT: overlay ẩn hẳn (hitTest trả nil) => mọi chạm/vuốt đi thẳng xuống WKWebView.
         // BẬT: hiện nút ngay; overlay nuốt toàn bộ cảm ứng: nút/joystick chỉ nhận trong hình tròn,
         //      phần còn lại chỉ để vuốt xoay camera (cần gạt phải), không bao giờ thành click chuột.
-        let show = s.enabled
+        // Chế độ chuột cảm ứng: ẩn hẳn bộ nút, mọi chạm xuống trang web (JS đổi chạm trên stream thành chuột)
+        let show = s.enabled && !s.touchMouse
         if !show {
             overlay.reset(notify: true)     // nhả mọi nút/phím đang giữ, đưa cần gạt về 0
             sendLeft(0, 0)
@@ -244,7 +245,6 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
         overlay.isHidden = !show
         overlay.isUserInteractionEnabled = show
         overlay.alpha = padEditing ? 1 : s.opacity
-        overlay.touchpadActive = s.enabled && s.touchMouse && isMouseCaptured && !padEditing
         updateGyro()
         refreshMenu()
         pushInputConfig()
@@ -255,7 +255,7 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
         guard let wv = webView else { return }
         let m = inputMode
         wv.evaluateJavaScript(
-            "window.__gfnMouse&&window.__gfnMouse.config({pad:\(m.usesPad),kbm:\(m.usesKBM)})"
+            "window.__gfnMouse&&window.__gfnMouse.config({pad:\(m.usesPad),kbm:\(m.usesKBM),tm:\(PadStore.shared.settings.touchMouse)})"
         )
     }
 
@@ -598,7 +598,7 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
       var mods = { shift: false, ctrl: false, alt: false };
 
       // Cấu hình do Swift đẩy vào qua config(): dùng tay cầm ảo và/hoặc chuột-phím tổng hợp
-      var mode = { pad: true, kbm: false };   // mặc định dùng tay cầm; Swift sẽ gửi lại qua config()
+      var mode = { pad: true, kbm: false, tm: false };   // mặc định dùng tay cầm; Swift sẽ gửi lại qua config()
 
       function post(v) {
         try { window.webkit.messageHandlers.gfnLock.postMessage(!!v); } catch (e) {}
@@ -964,6 +964,86 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
         typeKey(ch, code, up.charCodeAt(0), true);
       }
 
+      // ===== Chạm = chuột: chạm lên khung hình stream (video/canvas) => sự kiện chuột (pointerType 'mouse') =====
+      // Dùng cho launcher / menu của game (cần con trỏ). Cảm ứng thật bị chặn (preventDefault) để không bị nhân đôi.
+      var tmS = { id: null, down: false, sx: 0, sy: 0, lx: 0, ly: 0, el: null, rel: false };
+      function isStreamEl(el) { return !!el && (el.tagName === 'VIDEO' || el.tagName === 'CANVAS'); }
+      function tmEv(type, el, x, y, button, buttons) {
+        var init = {
+          bubbles: true, cancelable: true, composed: true, view: window,
+          clientX: x, clientY: y, screenX: x, screenY: y, button: button, buttons: buttons
+        };
+        var ev;
+        if (type.indexOf('pointer') === 0) {
+          init.pointerId = 1; init.pointerType = 'mouse'; init.isPrimary = true;
+          ev = new PointerEvent(type, init);
+        } else {
+          ev = new MouseEvent(type, init);
+        }
+        el.dispatchEvent(ev);
+      }
+      function tmMove(el, x, y, buttons) { tmEv('pointermove', el, x, y, -1, buttons); tmEv('mousemove', el, x, y, -1, buttons); }
+      function tmDown(el, x, y) { tmEv('pointerdown', el, x, y, 0, 1); tmEv('mousedown', el, x, y, 0, 1); }
+      function tmUp(el, x, y) { tmEv('pointerup', el, x, y, 0, 0); tmEv('mouseup', el, x, y, 0, 0); }
+      function tmFind(list) {
+        for (var i = 0; i < list.length; i++) if (list[i].identifier === tmS.id) return list[i];
+        return null;
+      }
+      window.addEventListener('touchstart', function (e) {
+        if (!mode.tm || tmS.id !== null) return;
+        var t = e.changedTouches && e.changedTouches[0];
+        if (!t) return;
+        var el = (e.composedPath && e.composedPath()[0]) || e.target;
+        if (!lockEl && !isStreamEl(el)) return;          // ngoài khung stream: để trang tự xử lý
+        tmS.id = t.identifier; tmS.down = false;
+        tmS.sx = tmS.lx = t.clientX; tmS.sy = tmS.ly = t.clientY;
+        tmS.rel = !!lockEl; tmS.el = lockEl || el;
+        e.preventDefault();
+        if (!tmS.rel) tmMove(tmS.el, t.clientX, t.clientY, 0);      // rê con trỏ tới chỗ chạm trước
+      }, { capture: true, passive: false });
+      window.addEventListener('touchmove', function (e) {
+        if (tmS.id === null) return;
+        var t = tmFind(e.changedTouches);
+        if (!t) return;
+        e.preventDefault();
+        if (tmS.rel) {                                   // game đang khóa chuột: kéo = di chuyển tương đối
+          var dx = t.clientX - tmS.lx, dy = t.clientY - tmS.ly;
+          tmS.lx = t.clientX; tmS.ly = t.clientY;
+          if (dx || dy) { tmEv('pointermove', tmS.el, t.clientX, t.clientY, -1, 0); window.__gfnMouse.tmove(dx * 1.6, dy * 1.6); }
+          return;
+        }
+        if (!tmS.down && Math.hypot(t.clientX - tmS.sx, t.clientY - tmS.sy) > 10) {
+          tmS.down = true;                               // kéo: nhấn giữ chuột ở chỗ bắt đầu (thanh trượt, kéo thả)
+          tmDown(tmS.el, tmS.sx, tmS.sy);
+        }
+        if (tmS.down) tmMove(tmS.el, t.clientX, t.clientY, 1);
+        tmS.lx = t.clientX; tmS.ly = t.clientY;
+      }, { capture: true, passive: false });
+      function tmEnd(e) {
+        if (tmS.id === null) return;
+        var t = tmFind(e.changedTouches);
+        if (!t) return;
+        e.preventDefault();
+        var el = tmS.el, rel = tmS.rel, wasDown = tmS.down;
+        tmS.id = null; tmS.down = false;
+        if (rel) {
+          if (e.type === 'touchend' && Math.hypot(t.clientX - tmS.sx, t.clientY - tmS.sy) < 10) {
+            window.__gfnMouse.tbutton(0, true);
+            setTimeout(function () { window.__gfnMouse.tbutton(0, false); }, 50);
+          }
+          return;
+        }
+        if (wasDown) { tmUp(el, t.clientX, t.clientY); return; }
+        if (e.type !== 'touchend') return;
+        tmDown(el, t.clientX, t.clientY);                // chạm nhanh = click trái
+        setTimeout(function () {
+          tmUp(el, t.clientX, t.clientY);
+          tmEv('click', el, t.clientX, t.clientY, 0, 0);
+        }, 50);
+      }
+      window.addEventListener('touchend', tmEnd, { capture: true, passive: false });
+      window.addEventListener('touchcancel', tmEnd, { capture: true, passive: false });
+
       // Đếm số gói gửi qua RTCDataChannel (chỉ đếm để chẩn đoán, không đổi dữ liệu)
       var dcCount = {};
       try {
@@ -981,6 +1061,7 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
           var wasKbm = mode.kbm;
           mode.pad = !!(c && c.pad);
           mode.kbm = !!(c && c.kbm);
+          mode.tm = !!(c && c.tm);
           if (wasKbm && !mode.kbm) releaseKbmHeld();
           syncPad();
         },

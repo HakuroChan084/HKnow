@@ -74,7 +74,7 @@ extension WebViewController {
         }
 
         let touchMouse = UIAction(
-            title: "Chạm = chuột (khi game khóa chuột)",
+            title: "Chế độ chuột cảm ứng (launcher: ẩn nút, chạm = chuột)",
             image: UIImage(systemName: "hand.point.up.left"),
             state: s.touchMouse ? .on : .off
         ) { [weak self] _ in

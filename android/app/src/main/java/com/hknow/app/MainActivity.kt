@@ -71,7 +71,7 @@ class MainActivity : Activity(), SensorEventListener {
             applyPadState()
         }
 
-    private val padLive get() = settings.enabled && settings.inputMode.usesPad && !padEditing && !overlay.hudHidden
+    private val padLive get() = settings.enabled && !settings.touchMouse && settings.inputMode.usesPad && !padEditing && !overlay.hudHidden
     private val inputLive get() = locked || padLive
 
     // Vuốt / gyro -> độ dời gộp theo từng khung hình
@@ -314,7 +314,8 @@ class MainActivity : Activity(), SensorEventListener {
     private fun applyPadState() {
         if (!::overlay.isInitialized) return
         val s = settings
-        val show = s.enabled
+        // Chế độ chuột cảm ứng: ẩn hẳn bộ nút, mọi chạm xuống trang web (JS đổi chạm trên stream thành chuột)
+        val show = s.enabled && !s.touchMouse
         if (!show) {
             overlay.reset(true)
             sendLeft(0f, 0f)
@@ -322,7 +323,6 @@ class MainActivity : Activity(), SensorEventListener {
             resetStick()
         }
         overlay.visibility = if (show) View.VISIBLE else View.GONE
-        overlay.touchpadActive = s.enabled && s.touchMouse && locked && !padEditing
         overlay.reload()
         updateGyro()
         pushInputConfig()
@@ -330,7 +330,7 @@ class MainActivity : Activity(), SensorEventListener {
 
     private fun pushInputConfig() {
         val m = settings.inputMode
-        js("window.__gfnMouse&&window.__gfnMouse.config({pad:${m.usesPad},kbm:${m.usesKbm}})")
+        js("window.__gfnMouse&&window.__gfnMouse.config({pad:${m.usesPad},kbm:${m.usesKbm},tm:${settings.touchMouse}})")
     }
 
     private fun resetStick() {
@@ -571,7 +571,7 @@ class MainActivity : Activity(), SensorEventListener {
         items += mark(s.gyroInvertY) + "Đảo hướng dọc gyro" to { s.gyroInvertY = !s.gyroInvertY; commit() }
         items += "Độ nhạy vuốt màn hình…" to { chooseValue("Độ nhạy vuốt", listOf(0.5f, 0.75f, 1f, 1.5f, 2f, 3f), s.lookSensitivity, { "${it}x" }) { s.lookSensitivity = it; commit() } }
         items += "Độ đậm của nút…" to { chooseValue("Độ đậm", listOf(0.3f, 0.45f, 0.6f, 0.8f, 1f), s.opacity, { "${(it * 100).toInt()}%" }) { s.opacity = it; commit() } }
-        items += mark(s.touchMouse) + "Chạm = chuột (khi game khóa chuột)" to { s.touchMouse = !s.touchMouse; commit() }
+        items += mark(s.touchMouse) + "Chế độ chuột cảm ứng (launcher: ẩn nút, chạm = chuột)" to { s.touchMouse = !s.touchMouse; commit() }
         items += "Thả chuột / chạm vào menu GFN" to { js("document.exitPointerLock&&document.exitPointerLock()") }
         items += "Tải lại trang" to { webView.reload() }
         items += "Đặt lại bố cục mặc định" to { PadStore.settings = PadSettings(); commit() }
