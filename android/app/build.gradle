@@ -11,8 +11,8 @@ android {
         minSdk 24
         targetSdk 34
         // Workflow Build APK truyền -PverCode=... -PverName=... để mỗi lần build ra một phiên bản khác
-        versionCode (project.findProperty('verCode') ?: '1').toInteger()
-        versionName (project.findProperty('verName') ?: '1.0')
+        versionCode = Integer.parseInt((project.findProperty('verCode') ?: '1').toString())
+        versionName = (project.findProperty('verName') ?: '1.0').toString()
     }
 
     compileOptions {
