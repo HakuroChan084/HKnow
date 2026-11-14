@@ -165,6 +165,17 @@ enum PadAction: Codable, Equatable {
         default: return false
         }
     }
+
+    /// Mặc định có cho vuốt xoay camera bằng chính ngón tay đang giữ nút không
+    /// (Bắn, Ngắm, R3, LB / RB / LT / RT, phím G ném lựu đạn).
+    var defaultAllowDragLook: Bool {
+        switch self {
+        case .mouse: return true
+        case .pad(let i): return [4, 5, 6, 7].contains(i)
+        case .key(let k): return k.code == "KeyG"
+        default: return false
+        }
+    }
 }
 
 // MARK: - Danh mục hành động (bảng chọn phân nhóm)
@@ -223,12 +234,51 @@ struct PadButton: Codable, Identifiable {
     var x: CGFloat      // vị trí tâm nút, 0...1 theo chiều ngang màn hình
     var y: CGFloat      // 0...1 theo chiều dọc
     var size: CGFloat   // đường kính (point)
+    /// Giữ nút + kéo ngón tay = vừa giữ lệnh vừa xoay camera (ghìm tâm / xoay ngắm bằng ngón đang giữ nút)
+    var allowDragLook: Bool
+
+    init(label: String, action: PadAction, x: CGFloat, y: CGFloat, size: CGFloat, allowDragLook: Bool? = nil) {
+        self.label = label
+        self.action = action
+        self.x = x
+        self.y = y
+        self.size = size
+        self.allowDragLook = allowDragLook ?? action.defaultAllowDragLook
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, label, action, x, y, size, allowDragLook
+    }
+
+    /// Đọc được cả dữ liệu đã lưu từ bản cũ (chưa có allowDragLook)
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        label = try c.decode(String.self, forKey: .label)
+        action = try c.decode(PadAction.self, forKey: .action)
+        x = try c.decode(CGFloat.self, forKey: .x)
+        y = try c.decode(CGFloat.self, forKey: .y)
+        size = try c.decode(CGFloat.self, forKey: .size)
+        allowDragLook = try c.decodeIfPresent(Bool.self, forKey: .allowDragLook) ?? action.defaultAllowDragLook
+    }
 }
 
 enum GyroMode: String, Codable {
     case off
     case always
     case whileAiming    // chỉ khi đang giữ nút chuột phải (ngắm)
+}
+
+/// Hai chế độ chạm, đổi nhanh bằng công tắc ở mép trên màn hình
+enum ControlMode: Int {
+    case hud = 0        // Chiến đấu: hiện bộ nút ảo, vùng trống để vuốt xoay camera
+    case mouse = 1      // Chuột / Launcher: ẩn nút ảo, chạm / kéo = rê và bấm chuột trong cửa sổ Steam / Epic...
+}
+
+/// Cách chạm khi ở chế độ Chuột / Launcher
+enum MouseTouchStyle: String, Codable {
+    case virtualCursor  // con trỏ ảo: kéo ngón tay để rê chuột, chạm = click, giữ = kéo thả, 2 ngón = chuột phải / cuộn
+    case native         // chạm gốc: chạm thẳng xuống WKWebView (WebKit tự đổi tap thành click)
 }
 
 // MARK: - Cài đặt toàn bộ
@@ -248,6 +298,34 @@ struct PadSettings: Codable {
     var joySize: CGFloat = 150
 
     var buttons: [PadButton] = PadSettings.defaultButtons
+
+    // Chế độ Chuột / Launcher
+    var mouseStyle: MouseTouchStyle = .virtualCursor
+
+    init() {}
+
+    private enum CodingKeys: String, CodingKey {
+        case enabled, opacity, lookSensitivity, gyroMode, gyroSensitivity, gyroInvertX, gyroInvertY
+        case joyX, joyY, joySize, buttons, mouseStyle
+    }
+
+    /// Mọi trường đều tùy chọn: dữ liệu lưu từ bản cũ vẫn đọc được, trường mới lấy giá trị mặc định
+    init(from decoder: Decoder) throws {
+        self.init()
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        enabled = try c.decodeIfPresent(Bool.self, forKey: .enabled) ?? enabled
+        opacity = try c.decodeIfPresent(CGFloat.self, forKey: .opacity) ?? opacity
+        lookSensitivity = try c.decodeIfPresent(CGFloat.self, forKey: .lookSensitivity) ?? lookSensitivity
+        gyroMode = try c.decodeIfPresent(GyroMode.self, forKey: .gyroMode) ?? gyroMode
+        gyroSensitivity = try c.decodeIfPresent(CGFloat.self, forKey: .gyroSensitivity) ?? gyroSensitivity
+        gyroInvertX = try c.decodeIfPresent(Bool.self, forKey: .gyroInvertX) ?? gyroInvertX
+        gyroInvertY = try c.decodeIfPresent(Bool.self, forKey: .gyroInvertY) ?? gyroInvertY
+        joyX = try c.decodeIfPresent(CGFloat.self, forKey: .joyX) ?? joyX
+        joyY = try c.decodeIfPresent(CGFloat.self, forKey: .joyY) ?? joyY
+        joySize = try c.decodeIfPresent(CGFloat.self, forKey: .joySize) ?? joySize
+        buttons = try c.decodeIfPresent([PadButton].self, forKey: .buttons) ?? buttons
+        mouseStyle = try c.decodeIfPresent(MouseTouchStyle.self, forKey: .mouseStyle) ?? mouseStyle
+    }
 
     static var defaultButtons: [PadButton] {
         [

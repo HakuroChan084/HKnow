@@ -21,6 +21,15 @@ enum InputMode: Int, CaseIterable {
         case .both: return "Cả hai (song song)"
         }
     }
+
+    /// Nhãn ngắn cho ô chọn trong bảng cài đặt
+    var shortTitle: String {
+        switch self {
+        case .gamepad: return "Tay cầm"
+        case .keyboardMouse: return "Chuột + Phím"
+        case .both: return "Cả hai"
+        }
+    }
 }
 
 /// App chỉ gồm 1 WebView toàn màn hình mở trang GeForce NOW, kèm:
@@ -38,14 +47,22 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
 
     // --- Chỉ dùng cho chế độ tay cầm: đổi vuốt/gyro/chuột (pixel) thành cần gạt phải ---
 
-    /// Tốc độ (pixel/giây) tương ứng gạt cần phải hết cỡ. GIẢM nếu camera quay chậm, TĂNG nếu quay quá nhanh.
-    private let stickFullSpeed: Double = 2000
+    /// Tốc độ (pixel/giây) tương ứng gạt cần phải hết cỡ. GIẢM nếu camera quay chậm / muốn vẩy nhanh quay gắt hơn,
+    /// TĂNG nếu quay quá nhanh.
+    private let stickFullSpeed: Double = 1600
 
     /// Bù vùng chết của game: chuyển động rất nhỏ vẫn gạt cần ít nhất ngần này (0...0.3).
-    private let stickDeadzoneBoost: Double = 0.10
+    private let stickDeadzoneBoost: Double = 0.08
 
-    /// Hằng số làm mượt (giây). Nhỏ = nhạy/giật hơn, lớn = mượt nhưng trễ hơn.
-    private let stickSmoothing: Double = 0.03
+    /// Hằng số làm mượt (giây). Nhỏ = nhạy / bám tay hơn, lớn = mượt nhưng trễ hơn. 0.012 – 0.015 ≈ như chuột thật.
+    private let stickSmoothing: Double = 0.014
+
+    /// Đường cong phản hồi: hệ số ở tốc độ vuốt rất chậm (0...1). Nhỏ = vuốt chậm càng "ghìm", ngắm tỉa càng chính xác;
+    /// 1 = tuyến tính. Tốc độ càng tăng hệ số càng tiến về 1 (vẩy nhanh = gạt hết cỡ).
+    private let lookPrecision: Double = 0.55
+
+    /// Khi nhấc ngón tay: giữ lại bao nhiêu phần vận tốc cần gạt (0 = dừng ngay, 1 = trượt quán tính như cũ)
+    private let lookLiftCarry: Double = 0.3
 
     private let desktopUA =
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15"
@@ -54,7 +71,11 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
 
     var webView: WKWebView!
     let overlay = ControllerOverlayView()
-    let gearButton = UIButton(type: .system)
+    /// Thanh nhỏ sát mép trên màn hình: nút Setting + công tắc nhanh Chiến đấu / Chuột (tự mờ khi không chạm)
+    let topBar = TopBarView()
+    var gearButton: UIButton { topBar.settingsButton }
+    /// Bảng cài đặt kiểu gaming (đang mở thì khác nil)
+    var settingsPanel: GamingPanelView?
 
     private var displayLink: CADisplayLink?
     private var pendingDX: CGFloat = 0
@@ -93,6 +114,26 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
         }
     }
 
+    /// Chế độ chạm hiện tại: Chiến đấu (HUD) hoặc Chuột / Launcher. Không lưu: mỗi lần mở app luôn vào Chiến đấu.
+    /// Đổi bằng setControlMode(_:) để nhả sạch nút / phím đang giữ trước khi chuyển.
+    private(set) var controlMode: ControlMode = .hud {
+        didSet {
+            guard oldValue != controlMode else { return }
+            if controlMode == .mouse && touchCursorPos == .zero {
+                touchCursorPos = CGPoint(x: view.bounds.midX, y: view.bounds.midY)
+            }
+            setNeedsUpdateOfPrefersPointerLocked()
+            updateCursorVisibility()
+            applyPadState()
+        }
+    }
+
+    /// Vị trí con trỏ ảo (chế độ Chuột / Launcher, kiểu "Con trỏ ảo")
+    private var touchCursorPos = CGPoint.zero
+    private var touchCursorOn: Bool {
+        controlMode == .mouse && PadStore.shared.settings.mouseStyle == .virtualCursor
+    }
+
     /// true khi trang web (game) đang xin khóa chuột
     private var isMouseCaptured = false {
         didSet {
@@ -111,8 +152,9 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
         PadStore.shared.settings.enabled && inputMode.usesPad && !padEditing && !overlay.hudHidden
     }
 
-    /// Có được gửi input vào trang không: đã khóa chuột (game đang bắt chuột) HOẶC tay cầm ảo đang hoạt động
-    private var inputLive: Bool { isMouseCaptured || padLive }
+    /// Có được gửi input vào trang không: đã khóa chuột (game đang bắt chuột) HOẶC tay cầm ảo đang hoạt động.
+    /// Chế độ Chuột / Launcher: luôn tắt (nút ảo, vuốt xoay camera và gyro đều ngừng).
+    private var inputLive: Bool { controlMode == .hud && (isMouseCaptured || padLive) }
 
     /// Bàn phím ảo iOS: UITextField ẩn làm firstResponder, mọi ký tự gõ được chuyển vào trang
     let keyField = KeyCatcherField()
@@ -129,8 +171,8 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
 
     override var prefersStatusBarHidden: Bool { true }
     override var prefersHomeIndicatorAutoHidden: Bool { true }
-    /// Chỉ khóa con trỏ hệ thống khi vào game (xoay camera). Ngoài game để chuột chạy tự nhiên.
-    override var prefersPointerLocked: Bool { isMouseCaptured }
+    /// Chỉ khóa con trỏ hệ thống khi vào game (xoay camera) ở chế độ Chiến đấu. Ngoài game / chế độ Chuột để chuột chạy tự nhiên.
+    override var prefersPointerLocked: Bool { isMouseCaptured && controlMode == .hud }
     override var supportedInterfaceOrientations: UIInterfaceOrientationMask { .all }
 
     // MARK: - Vòng đời
@@ -188,6 +230,8 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
             overlay.trailingAnchor.constraint(equalTo: view.trailingAnchor),
         ])
         overlay.onLook = { [weak self] dx, dy in self?.addLook(dx, dy) }
+        overlay.onLookEnd = { [weak self] in self?.brakeStick() }
+        overlay.onPointer = { [weak self] event in self?.handlePointer(event) }
         overlay.onAction = { [weak self] action, down in self?.perform(action, down: down) }
         overlay.onJoystick = { [weak self] x, y in self?.sendLeft(x, y) }
         overlay.onEditButton = { [weak self] id, source in self?.presentButtonEditor(id, from: source) }
@@ -233,16 +277,20 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
         // TẮT: overlay ẩn hẳn (hitTest trả nil) => mọi chạm/vuốt đi thẳng xuống WKWebView.
         // BẬT: hiện nút ngay; overlay nuốt toàn bộ cảm ứng: nút/joystick chỉ nhận trong hình tròn,
         //      phần còn lại chỉ để vuốt xoay camera (cần gạt phải), không bao giờ thành click chuột.
-        let show = s.enabled
+        // CHUỘT / LAUNCHER: nút ảo ẩn tạm. Kiểu "Con trỏ ảo": overlay nhận chạm để rê / bấm chuột trong trang;
+        //      kiểu "Chạm gốc": overlay ẩn hẳn, chạm đi thẳng xuống WKWebView.
+        let show = (controlMode == .hud) ? s.enabled : touchCursorOn
         if !show {
             overlay.reset(notify: true)     // nhả mọi nút/phím đang giữ, đưa cần gạt về 0
             sendLeft(0, 0)
             pendingDX = 0; pendingDY = 0
             resetStick()
         }
+        overlay.mode = controlMode
         overlay.isHidden = !show
         overlay.isUserInteractionEnabled = show
-        overlay.alpha = padEditing ? 1 : s.opacity
+        overlay.alpha = (padEditing || controlMode == .mouse) ? 1 : s.opacity
+        updateCursorVisibility()
         updateGyro()
         refreshMenu()
         pushInputConfig()
@@ -268,6 +316,61 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
         let k = PadStore.shared.settings.lookSensitivity
         pendingDX += dx * k
         pendingDY += dy * k
+    }
+
+    /// Nhấc ngón tay vuốt camera: phanh cần gạt phải ngay (không trượt quán tính như cần gạt thật)
+    private func brakeStick() {
+        stickVX *= lookLiftCarry
+        stickVY *= lookLiftCarry
+    }
+
+    // MARK: - Đổi chế độ Chiến đấu / Chuột (công tắc nhanh)
+
+    func setControlMode(_ newMode: ControlMode) {
+        guard newMode != controlMode else { return }
+        if padEditing {
+            padEditing = false
+            PadStore.shared.save()
+        }
+        // Nhả sạch nút / phím / cần gạt đang giữ TRƯỚC khi đổi chế độ để không kẹt phím trong game
+        overlay.reset(notify: true)
+        sendLeft(0, 0)
+        pendingDX = 0; pendingDY = 0
+        resetStick()
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        controlMode = newMode
+    }
+
+    // MARK: - Chuột / Launcher: chạm -> sự kiện chuột tại điểm chạm trong trang
+
+    private func handlePointer(_ event: PointerEvent) {
+        guard controlMode == .mouse, touchCursorOn else { return }
+        let w = max(view.bounds.width, 1), h = max(view.bounds.height, 1)
+        // Toạ độ chuẩn hóa 0...1: JS tự nhân với innerWidth / innerHeight nên không phụ thuộc mức zoom của trang
+        func nrm(_ p: CGPoint) -> String {
+            String(format: "%.5f,%.5f", Double(p.x / w), Double(p.y / h))
+        }
+        let call: String
+        switch event {
+        case .move(let p):
+            touchCursorPos = p
+            call = "ptrMove(\(nrm(p)))"
+        case .down(let p, let b):
+            touchCursorPos = p
+            call = "ptrDown(\(nrm(p)),\(b))"
+        case .up(let p, let b):
+            touchCursorPos = p
+            call = "ptrUp(\(nrm(p)),\(b))"
+        case .click(let p, let b, let n):
+            touchCursorPos = p
+            call = "ptrClick(\(nrm(p)),\(b),\(n))"
+        case .wheel(let p, let dy):
+            // Ngón tay kéo lên = nội dung cuộn xuống (deltaY dương)
+            let delta = String(format: "%.1f", Double(-dy) * 1.5)
+            call = "ptrWheel(\(nrm(p)),\(delta))"
+        }
+        updateCursorVisibility()
+        webView.evaluateJavaScript("window.__gfnMouse&&window.__gfnMouse.\(call)")
     }
 
     func perform(_ action: PadAction, down: Bool) {
@@ -367,6 +470,12 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
     }
 
     private func updateCursorVisibility() {
+        // Chế độ Chuột / Launcher (con trỏ ảo): luôn hiện mũi tên tại điểm chạm gần nhất
+        if touchCursorOn {
+            cursorView.isHidden = false
+            cursorView.place(at: touchCursorPos)
+            return
+        }
         let show = pointerInside && !isMouseCaptured
         cursorView.isHidden = !show
         if show { cursorView.place(at: cursorPos) }
@@ -398,9 +507,13 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
         webView.evaluateJavaScript("(function(m){if(m){" + calls.joined(separator: ";") + "}})(window.__gfnMouse)")
     }
 
-    /// Đổi độ dời (pixel/khung hình) thành cần gạt phải [-1, 1].
+    /// Đổi độ dời (pixel/khung hình) thành cần gạt phải [-1, 1], cố gắng cho cảm giác như rê chuột thật.
     /// Cần gạt là VẬN TỐC, còn vuốt/gyro/chuột là VỊ TRÍ, nên dùng trung bình trượt theo vận tốc:
     /// tổng góc quay vẫn tỉ lệ với quãng vuốt, và cần tự về 0 khi dừng vuốt.
+    ///  1. Làm mượt rất ngắn (stickSmoothing ≈ 14ms) -> bám tay, không khựng.
+    ///  2. Đường cong phản hồi: vuốt chậm hệ số thấp (lookPrecision) để ghìm tâm / ngắm tỉa chính xác,
+    ///     vẩy nhanh hệ số tiến dần về 1 và chạm trần cần gạt (quay gắt nhất mà game cho phép).
+    ///  3. Nhấc tay: onLookEnd -> brakeStick() phanh gần như ngay, không trượt quán tính.
     private func stickCall(dx: CGFloat, dy: CGFloat, dt: Double) -> String? {
         let a = 1 - exp(-dt / stickSmoothing)
         stickVX += (Double(dx) / dt - stickVX) * a
@@ -418,8 +531,12 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
         }
         stickWasActive = true
 
+        // Đường cong: hệ số từ lookPrecision (rất chậm) tăng dần tới 1 (khi gạt đầy)
+        let gain = lookPrecision + (1 - lookPrecision) * min(mag, 1)
+        let curved = mag * gain
+
         // Bù vùng chết theo hướng (giữ nguyên hướng gạt), giới hạn trong vòng tròn đơn vị
-        let out = min(1, stickDeadzoneBoost + (1 - stickDeadzoneBoost) * mag)
+        let out = min(1, stickDeadzoneBoost + (1 - stickDeadzoneBoost) * curved)
         let k = out / mag
         return String(format: "m.stick(%.4f,%.4f)", nx * k, ny * k)
     }
@@ -985,6 +1102,61 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
         };
       } catch (e) {}
 
+      // ===== Con trỏ ảo (chế độ Chuột / Launcher): chạm màn hình -> sự kiện chuột tại điểm chạm =====
+      // Toạ độ nhận vào là 0...1 theo kích thước WebView, đổi sang pixel CSS bằng innerWidth / innerHeight.
+      var ptr = { x: 0, y: 0, buttons: 0, el: null };
+
+      function ptrAt(nx, ny) {
+        var px = ptr.x, py = ptr.y;
+        ptr.x = (+nx || 0) * (window.innerWidth || 1);
+        ptr.y = (+ny || 0) * (window.innerHeight || 1);
+        var el = null;
+        try { el = document.elementFromPoint(ptr.x, ptr.y); } catch (e) {}
+        el = el || document.body || document.documentElement;
+        return { el: el, dx: ptr.x - px, dy: ptr.y - py };
+      }
+
+      function ptrEv(type, el, init) {
+        var base = {
+          bubbles: true, cancelable: true, composed: true, view: window,
+          clientX: ptr.x, clientY: ptr.y, screenX: ptr.x, screenY: ptr.y,
+          buttons: ptr.buttons, button: 0
+        };
+        for (var k in init) base[k] = init[k];
+        var ev;
+        try {
+          if (type.indexOf('pointer') === 0 && window.PointerEvent) {
+            base.pointerType = 'mouse'; base.pointerId = 1; base.isPrimary = true;
+            ev = new PointerEvent(type, base);
+          } else if (type === 'wheel' && window.WheelEvent) {
+            ev = new WheelEvent('wheel', base);
+          } else {
+            ev = new MouseEvent(type, base);
+          }
+        } catch (e) { return; }
+        if (init.movementX !== undefined) {
+          try {
+            Object.defineProperty(ev, 'movementX', { value: init.movementX });
+            Object.defineProperty(ev, 'movementY', { value: init.movementY });
+          } catch (e) {}
+        }
+        el.dispatchEvent(ev);
+      }
+
+      function ptrBit(b) { return b === 0 ? 1 : (b === 2 ? 2 : 4); }
+
+      function ptrEnter(el) {
+        if (ptr.el === el) return;
+        var old = ptr.el;
+        ptr.el = el;
+        if (old) ptrEv('mouseout', old, { relatedTarget: el });
+        ptrEv('mouseover', el, { relatedTarget: old || null });
+      }
+
+      function ptrFocus(el) {
+        try { if (el && el.focus) el.focus({ preventScroll: true }); } catch (e) {}
+      }
+
       // ===== 4. API cho app Swift gọi =====
       window.__gfnMouse = {
         // {pad: bool, kbm: bool}
@@ -1070,6 +1242,49 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
           if (!padOn) return;
           leftAnalog.x = clamp1(x); leftAnalog.y = clamp1(y);
           recomputePad();
+        },
+        // ----- Con trỏ ảo (chế độ Chuột / Launcher) -----
+        ptrMove: function (nx, ny) {
+          var t = ptrAt(nx, ny);
+          ptrEnter(t.el);
+          ptrEv('pointermove', t.el, { movementX: t.dx, movementY: t.dy });
+          ptrEv('mousemove', t.el, { movementX: t.dx, movementY: t.dy });
+        },
+        ptrDown: function (nx, ny, b) {
+          var t = ptrAt(nx, ny);
+          ptrEnter(t.el);
+          ptrFocus(t.el);
+          ptr.buttons |= ptrBit(b);
+          ptrEv('pointerdown', t.el, { button: b, detail: 1 });
+          ptrEv('mousedown', t.el, { button: b, detail: 1 });
+        },
+        ptrUp: function (nx, ny, b) {
+          var t = ptrAt(nx, ny);
+          ptr.buttons &= ~ptrBit(b);
+          ptrEv('pointerup', t.el, { button: b });
+          ptrEv('mouseup', t.el, { button: b });
+        },
+        ptrClick: function (nx, ny, b, n) {
+          var t = ptrAt(nx, ny);
+          var d = n || 1;
+          ptrEnter(t.el);
+          ptrFocus(t.el);
+          ptr.buttons |= ptrBit(b);
+          ptrEv('pointerdown', t.el, { button: b, detail: d });
+          ptrEv('mousedown', t.el, { button: b, detail: d });
+          ptr.buttons &= ~ptrBit(b);
+          ptrEv('pointerup', t.el, { button: b });
+          ptrEv('mouseup', t.el, { button: b, detail: d });
+          if (b === 0) {
+            ptrEv('click', t.el, { button: 0, detail: d });
+            if (d === 2) ptrEv('dblclick', t.el, { button: 0, detail: 2 });
+          } else if (b === 2) {
+            ptrEv('contextmenu', t.el, { button: 2 });
+          }
+        },
+        ptrWheel: function (nx, ny, dy) {
+          var t = ptrAt(nx, ny);
+          ptrEv('wheel', t.el, { deltaX: 0, deltaY: dy, deltaMode: 0 });
         },
         // Chẩn đoán: gọi từ Web Inspector -> __gfnMouse.stats()
         stats: function () {

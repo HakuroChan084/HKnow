@@ -1,12 +1,14 @@
-name: Build IPA
+name: Build IPA + APK
 
 on:
-  workflow_dispatch:   # cho phép bấm nút "Run workflow" thủ công
+  workflow_dispatch:   # bấm nút "Run workflow" để build cả 2 file cùng lúc
   push:
     branches: [main, master]
+    tags: ['v*']       # đẩy tag vX.Y -> build xong tự đăng lên mục Releases (1 apk + 1 ipa)
 
 jobs:
-  build:
+  ios:
+    name: Build IPA (iOS)
     runs-on: macos-latest
     steps:
       - name: Lấy source code
@@ -43,3 +45,55 @@ jobs:
         with:
           name: GFNWeb-ipa
           path: GFNWeb.ipa
+
+  android:
+    name: Build APK (Android)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Lấy source code
+        uses: actions/checkout@v4
+
+      - name: Cài JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Cài Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Build APK (ký bằng khóa debug, cài được ngay)
+        working-directory: android
+        run: gradle --no-daemon assembleDebug
+
+      - name: Đổi tên thành HKnow.apk
+        run: cp android/app/build/outputs/apk/debug/app-debug.apk HKnow.apk
+
+      - name: Upload file apk
+        uses: actions/upload-artifact@v4
+        with:
+          name: HKnow-apk
+          path: HKnow.apk
+
+  release:
+    name: Đăng lên Releases (chỉ khi đẩy tag vX.Y)
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [ios, android]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Tải ipa + apk
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Tạo Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/GFNWeb.ipa
+            dist/HKnow.apk
