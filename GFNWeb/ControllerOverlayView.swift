@@ -13,7 +13,7 @@ enum Neon {
 // MARK: - Sự kiện con trỏ (chế độ Chuột / Launcher)
 
 enum PointerEvent {
-    case move(CGPoint)
+    case move(CGPoint, CGPoint)         // vị trí con trỏ, độ dời của con trỏ trong lần di chuyển này (.zero = vừa chạm xuống)
     case down(CGPoint, Int)             // vị trí, nút (0 trái, 2 phải)
     case up(CGPoint, Int)
     case click(CGPoint, Int, Int)       // vị trí, nút, số lần bấm liên tiếp (1 hoặc 2)
@@ -203,6 +203,19 @@ final class ControllerOverlayView: UIView {
     /// Chế độ Chuột / Launcher: sự kiện con trỏ ảo (toạ độ trong overlay, trùng toạ độ WebView)
     var onPointer: ((PointerEvent) -> Void)?
 
+    /// Chế độ Chuột / Launcher có hai cách điều khiển con trỏ:
+    ///  - false (mặc định): con trỏ BÁM NGÓN TAY. Chạm xuống đâu con trỏ nhảy tới đó, tap = bấm đúng chỗ ngón tay vừa chạm.
+    ///    Dùng khi trang đang nhận toạ độ tuyệt đối (GFN chưa khóa chuột).
+    ///  - true: TRACKPAD. GFN đang khóa chuột nên chỉ nhận độ dời tương đối: kéo ngón tay = cộng dồn dx, dy (có gia tốc)
+    ///    như trackpad laptop, nhấc ngón ra con trỏ vẫn đứng yên, tap = bấm tại chỗ con trỏ đang đứng.
+    /// WebViewController tự đặt theo trạng thái khóa chuột của trang.
+    var relativeCursor = false
+
+    /// Hệ số nhân độ dời ở chế độ trackpad: vuốt chậm = gần 1:1 để nhắm chính xác nút nhỏ, vuốt nhanh = tăng dần tới trần
+    private let trackpadBaseGain: CGFloat = 1.1
+    private let trackpadAccel: CGFloat = 1800       // mỗi 1800 pt/giây hệ số tăng thêm 1.0
+    private let trackpadMaxGain: CGFloat = 3.0
+
     /// Đang giữ nút Ngắm (LT / chuột phải) -> dùng cho gyro "chỉ khi ngắm"
     private(set) var aimHeld = false
 
@@ -254,9 +267,11 @@ final class ControllerOverlayView: UIView {
     }
 
     private struct MouseState {
-        var cursor = CGPoint.zero
+        var cursor = CGPoint.zero               // vị trí con trỏ ảo (nhớ lại giữa các lần chạm)
         var startTime: TimeInterval = 0
         var startPoint = CGPoint.zero
+        var lastMoveTime: TimeInterval = 0
+        var primary: ObjectIdentifier?          // ngón đầu tiên của cử chỉ hiện tại
         var moved = false
         var downSent = false
         var twoFinger = false
@@ -577,17 +592,33 @@ final class ControllerOverlayView: UIView {
         holdItem = nil
     }
 
+    private func clampToBounds(_ p: CGPoint) -> CGPoint {
+        guard bounds.width > 0, bounds.height > 0 else { return p }
+        return CGPoint(x: min(max(p.x, 0), bounds.width), y: min(max(p.y, 0), bounds.height))
+    }
+
+    /// Đặt vị trí con trỏ ảo (WebViewController gọi khi vào chế độ Chuột để con trỏ khởi đầu ở giữa màn hình)
+    func setCursor(_ p: CGPoint) {
+        ms.cursor = clampToBounds(p)
+    }
+
     private func mouseBegan(_ t: UITouch) {
         let p = t.location(in: self)
         roles[t] = .mouse
         if mouseTouchCount == 1 {
-            ms.cursor = p
+            ms.primary = ObjectIdentifier(t)
             ms.startTime = t.timestamp
             ms.startPoint = p
+            ms.lastMoveTime = t.timestamp
             ms.moved = false
             ms.downSent = false
             ms.twoFinger = false
-            onPointer?(.move(p))
+            if !relativeCursor {
+                // Bám ngón tay: con trỏ nhảy tới chỗ chạm và báo ngay để trang rê chuột tới đó trước khi bấm
+                ms.cursor = clampToBounds(p)
+                onPointer?(.move(ms.cursor, .zero))
+            }
+            // Trackpad: chạm xuống chưa làm con trỏ nhúc nhích, chỉ kéo / tap mới có tác dụng
             scheduleHold()
         } else {
             // Ngón thứ hai: chuột phải (chạm nhanh) hoặc cuộn (kéo)
@@ -605,18 +636,35 @@ final class ControllerOverlayView: UIView {
     private func mouseMoved(_ t: UITouch) {
         let p = t.location(in: self)
         let prev = t.previousLocation(in: self)
+        let d = CGPoint(x: p.x - prev.x, y: p.y - prev.y)
+
         if ms.twoFinger {
-            let dy = p.y - prev.y
-            ms.twoTravel += abs(dy) + abs(p.x - prev.x)
-            if ms.twoTravel > 8 { onPointer?(.wheel(ms.cursor, dy)) }
-        } else {
-            ms.cursor = p
-            if !ms.downSent, hypot(p.x - ms.startPoint.x, p.y - ms.startPoint.y) > 10 {
-                ms.moved = true
-                cancelHold()
-            }
-            onPointer?(.move(p))
+            // Hai ngón: chỉ tính chuyển động của ngón thứ hai để cuộn (ngón đầu không tính đôi, cũng không rê con trỏ)
+            guard ms.primary != ObjectIdentifier(t) else { return }
+            ms.twoTravel += abs(d.x) + abs(d.y)
+            if ms.twoTravel > 8 { onPointer?(.wheel(ms.cursor, d.y)) }
+            return
         }
+
+        var delta = d
+        if relativeCursor {
+            // Trackpad: cộng dồn độ dời ngón tay (có gia tốc theo tốc độ vuốt)
+            let dt = max(t.timestamp - ms.lastMoveTime, 1.0 / 240.0)
+            let speed = hypot(d.x, d.y) / CGFloat(dt)
+            let gain = min(trackpadBaseGain + speed / trackpadAccel, trackpadMaxGain)
+            delta = CGPoint(x: d.x * gain, y: d.y * gain)
+            ms.cursor = clampToBounds(CGPoint(x: ms.cursor.x + delta.x, y: ms.cursor.y + delta.y))
+        } else {
+            // Bám ngón tay: con trỏ nằm đúng chỗ ngón tay
+            ms.cursor = clampToBounds(p)
+        }
+        ms.lastMoveTime = t.timestamp
+
+        if !ms.downSent, hypot(p.x - ms.startPoint.x, p.y - ms.startPoint.y) > 10 {
+            ms.moved = true
+            cancelHold()
+        }
+        onPointer?(.move(ms.cursor, delta))
     }
 
     private func mouseEnded(_ t: UITouch, cancelled: Bool) {
@@ -624,6 +672,7 @@ final class ControllerOverlayView: UIView {
         if ms.twoFinger {
             if mouseTouchCount == 0 {
                 if !cancelled, ms.twoTravel < 12, t.timestamp - ms.twoStart < 0.4 {
+                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
                     onPointer?(.click(ms.cursor, 2, 1))
                 }
                 ms.twoFinger = false
@@ -639,6 +688,7 @@ final class ControllerOverlayView: UIView {
                 && hypot(ms.cursor.x - ms.lastTapPoint.x, ms.cursor.y - ms.lastTapPoint.y) < 30
             ms.lastTapTime = isDouble ? 0 : now
             ms.lastTapPoint = ms.cursor
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
             onPointer?(.click(ms.cursor, 0, isDouble ? 2 : 1))
         }
     }

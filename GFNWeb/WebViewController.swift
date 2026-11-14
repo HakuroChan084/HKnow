@@ -119,8 +119,16 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
     private(set) var controlMode: ControlMode = .hud {
         didSet {
             guard oldValue != controlMode else { return }
-            if controlMode == .mouse && touchCursorPos == .zero {
-                touchCursorPos = CGPoint(x: view.bounds.midX, y: view.bounds.midY)
+            if controlMode == .mouse {
+                if touchCursorPos == .zero {
+                    touchCursorPos = CGPoint(x: view.bounds.midX, y: view.bounds.midY)
+                }
+                overlay.setCursor(touchCursorPos)       // con trỏ ảo và lớp cảm ứng bắt đầu từ cùng một điểm
+            }
+            overlay.relativeCursor = isMouseCaptured
+            if oldValue == .mouse {
+                // Rời chế độ Chuột: nhả nút chuột ảo đang giữ (nếu có) và dọn trạng thái hover trên trang
+                webView?.evaluateJavaScript("window.__gfnMouse&&window.__gfnMouse.ptrReset&&window.__gfnMouse.ptrReset()")
             }
             setNeedsUpdateOfPrefersPointerLocked()
             updateCursorVisibility()
@@ -140,7 +148,11 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
             guard oldValue != isMouseCaptured else { return }
             pendingDX = 0; pendingDY = 0
             resetStick()
-            overlay.reset(notify: false)
+            // Chế độ Chuột / Launcher: KHÔNG reset lớp cảm ứng, vì chính cú bấm tổng hợp của ta có thể làm GFN xin / nhả
+            // khóa chuột ngay giữa lúc đang chạm (reset sẽ làm mất ngón tay đang đặt và bộ nhớ double-tap).
+            if controlMode == .hud { overlay.reset(notify: false) }
+            // Trang đang khóa chuột = nhận độ dời tương đối -> con trỏ chạy kiểu trackpad; chưa khóa -> bám ngón tay
+            overlay.relativeCursor = isMouseCaptured
             setNeedsUpdateOfPrefersPointerLocked()
             updateCursorVisibility()
             applyPadState()
@@ -286,6 +298,7 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
             pendingDX = 0; pendingDY = 0
             resetStick()
         }
+        overlay.relativeCursor = isMouseCaptured
         overlay.mode = controlMode
         overlay.isHidden = !show
         overlay.isUserInteractionEnabled = show
@@ -341,20 +354,21 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
         controlMode = newMode
     }
 
-    // MARK: - Chuột / Launcher: chạm -> sự kiện chuột tại điểm chạm trong trang
+    // MARK: - Chuột / Launcher: chạm -> con trỏ ảo -> sự kiện chuột tại toạ độ con trỏ trong trang
 
     private func handlePointer(_ event: PointerEvent) {
         guard controlMode == .mouse, touchCursorOn else { return }
         let w = max(view.bounds.width, 1), h = max(view.bounds.height, 1)
-        // Toạ độ chuẩn hóa 0...1: JS tự nhân với innerWidth / innerHeight nên không phụ thuộc mức zoom của trang
+        // Toạ độ và độ dời chuẩn hóa theo kích thước WebView: JS tự nhân với kích thước khung nhìn của trang
+        // nên không phụ thuộc mức zoom. String(format:) không theo locale nên luôn dùng dấu chấm thập phân.
         func nrm(_ p: CGPoint) -> String {
             String(format: "%.5f,%.5f", Double(p.x / w), Double(p.y / h))
         }
         let call: String
         switch event {
-        case .move(let p):
+        case .move(let p, let d):
             touchCursorPos = p
-            call = "ptrMove(\(nrm(p)))"
+            call = "ptrMove(\(nrm(p)),\(nrm(d)))"
         case .down(let p, let b):
             touchCursorPos = p
             call = "ptrDown(\(nrm(p)),\(b))"
@@ -1102,21 +1116,40 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
         };
       } catch (e) {}
 
-      // ===== Con trỏ ảo (chế độ Chuột / Launcher): chạm màn hình -> sự kiện chuột tại điểm chạm =====
-      // Toạ độ nhận vào là 0...1 theo kích thước WebView, đổi sang pixel CSS bằng innerWidth / innerHeight.
-      var ptr = { x: 0, y: 0, buttons: 0, el: null };
+      // ===== Con trỏ ảo / Trackpad (chế độ Chuột / Launcher): chạm màn hình -> sự kiện chuột tổng hợp =====
+      // Swift gửi vị trí con trỏ chuẩn hóa 0...1 (theo WebView) và độ dời của con trỏ (cũng chuẩn hóa).
+      //  - Trang CHƯA khóa chuột: sự kiện bắn tại đúng (clientX, clientY) lên phần tử nằm dưới con trỏ, như chuột thật.
+      //  - Trang ĐANG khóa chuột (GFN dùng chế độ tương đối): sự kiện bắn lên phần tử đang khóa, mang movementX / movementY.
+      //    Lúc này vị trí con trỏ trên máy chủ không đọc được từ toạ độ, nên chỉ có độ dời mới có nghĩa.
+      // Bấm chuột luôn có nhịp: rê tới -> (30ms) nhấn -> (70ms) nhả -> click, để máy chủ GFN kịp nhận từng bước
+      // (nhấn và nhả trong cùng một khung hình thường bị bỏ qua).
+      var ptr = { x: 0, y: 0, buttons: 0, over: null, sent: 0, last: '' };
 
-      function ptrAt(nx, ny) {
-        var px = ptr.x, py = ptr.y;
-        ptr.x = (+nx || 0) * (window.innerWidth || 1);
-        ptr.y = (+ny || 0) * (window.innerHeight || 1);
+      // Khung nhìn của trang: dùng visualViewport (tính cả zoom / cuộn) nếu có, không thì innerWidth / innerHeight
+      function ptrView() {
+        var v = window.visualViewport;
+        if (v && v.width > 0 && v.height > 0) {
+          return { x0: v.offsetLeft || 0, y0: v.offsetTop || 0, w: v.width, h: v.height };
+        }
+        return { x0: 0, y0: 0, w: window.innerWidth || 1, h: window.innerHeight || 1 };
+      }
+
+      function ptrSet(nx, ny) {
+        var v = ptrView();
+        ptr.x = v.x0 + (+nx || 0) * v.w;
+        ptr.y = v.y0 + (+ny || 0) * v.h;
+      }
+
+      // Phần tử nhận sự kiện: đang khóa chuột -> phần tử khóa; không thì phần tử dưới con trỏ (giống chuột thật)
+      function ptrTarget() {
+        if (lockEl && lockEl.isConnected !== false) return lockEl;
         var el = null;
         try { el = document.elementFromPoint(ptr.x, ptr.y); } catch (e) {}
-        el = el || document.body || document.documentElement;
-        return { el: el, dx: ptr.x - px, dy: ptr.y - py };
+        return el || document.body || document.documentElement;
       }
 
       function ptrEv(type, el, init) {
+        if (!el) return;
         var base = {
           bubbles: true, cancelable: true, composed: true, view: window,
           clientX: ptr.x, clientY: ptr.y, screenX: ptr.x, screenY: ptr.y,
@@ -1127,6 +1160,8 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
         try {
           if (type.indexOf('pointer') === 0 && window.PointerEvent) {
             base.pointerType = 'mouse'; base.pointerId = 1; base.isPrimary = true;
+            base.width = 1; base.height = 1;
+            base.pressure = ptr.buttons ? 0.5 : 0;
             ev = new PointerEvent(type, base);
           } else if (type === 'wheel' && window.WheelEvent) {
             ev = new WheelEvent('wheel', base);
@@ -1140,16 +1175,27 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
             Object.defineProperty(ev, 'movementY', { value: init.movementY });
           } catch (e) {}
         }
-        el.dispatchEvent(ev);
+        try { el.dispatchEvent(ev); ptr.sent++; ptr.last = type; } catch (e) {}
       }
 
       function ptrBit(b) { return b === 0 ? 1 : (b === 2 ? 2 : 4); }
 
+      // Rê chuột: pointermove (button -1 theo chuẩn) + mousemove
+      function ptrMoveEv(el, dx, dy) {
+        ptrEv('pointermove', el, { button: -1, movementX: dx, movementY: dy });
+        ptrEv('mousemove', el, { movementX: dx, movementY: dy });
+      }
+
+      // Con trỏ đi vào phần tử mới (chỉ khi chưa khóa chuột): out / over để hiệu ứng hover của trang chạy
       function ptrEnter(el) {
-        if (ptr.el === el) return;
-        var old = ptr.el;
-        ptr.el = el;
-        if (old) ptrEv('mouseout', old, { relatedTarget: el });
+        if (ptr.over === el) return;
+        var old = ptr.over;
+        ptr.over = el;
+        if (old) {
+          ptrEv('pointerout', old, { relatedTarget: el, button: -1 });
+          ptrEv('mouseout', old, { relatedTarget: el });
+        }
+        ptrEv('pointerover', el, { relatedTarget: old || null, button: -1 });
         ptrEv('mouseover', el, { relatedTarget: old || null });
       }
 
@@ -1243,54 +1289,88 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
           leftAnalog.x = clamp1(x); leftAnalog.y = clamp1(y);
           recomputePad();
         },
-        // ----- Con trỏ ảo (chế độ Chuột / Launcher) -----
-        ptrMove: function (nx, ny) {
-          var t = ptrAt(nx, ny);
-          ptrEnter(t.el);
-          ptrEv('pointermove', t.el, { movementX: t.dx, movementY: t.dy });
-          ptrEv('mousemove', t.el, { movementX: t.dx, movementY: t.dy });
+        // ----- Con trỏ ảo / Trackpad (chế độ Chuột / Launcher) -----
+        // nx, ny: vị trí con trỏ (0...1); ndx, ndy: độ dời của con trỏ lần này (chuẩn hóa, 0 khi vừa chạm xuống)
+        ptrMove: function (nx, ny, ndx, ndy) {
+          ptrSet(nx, ny);
+          var v = ptrView();
+          var el = ptrTarget();
+          if (!lockEl) ptrEnter(el);
+          ptrMoveEv(el, (+ndx || 0) * v.w, (+ndy || 0) * v.h);
         },
         ptrDown: function (nx, ny, b) {
-          var t = ptrAt(nx, ny);
-          ptrEnter(t.el);
-          ptrFocus(t.el);
+          ptrSet(nx, ny);
+          var el = ptrTarget();
+          if (!lockEl) ptrEnter(el);
+          ptrFocus(el); ensureFocus();
           ptr.buttons |= ptrBit(b);
-          ptrEv('pointerdown', t.el, { button: b, detail: 1 });
-          ptrEv('mousedown', t.el, { button: b, detail: 1 });
+          ptrEv('pointerdown', el, { button: b, detail: 1 });
+          ptrEv('mousedown', el, { button: b, detail: 1 });
         },
         ptrUp: function (nx, ny, b) {
-          var t = ptrAt(nx, ny);
+          ptrSet(nx, ny);
+          var el = ptrTarget();
           ptr.buttons &= ~ptrBit(b);
-          ptrEv('pointerup', t.el, { button: b });
-          ptrEv('mouseup', t.el, { button: b });
+          ptrEv('pointerup', el, { button: b });
+          ptrEv('mouseup', el, { button: b });
         },
+        // Tap: rê tới -> nhấn -> giữ 70ms -> nhả -> click (n = 2: nhấp đúp)
         ptrClick: function (nx, ny, b, n) {
-          var t = ptrAt(nx, ny);
-          var d = n || 1;
-          ptrEnter(t.el);
-          ptrFocus(t.el);
-          ptr.buttons |= ptrBit(b);
-          ptrEv('pointerdown', t.el, { button: b, detail: d });
-          ptrEv('mousedown', t.el, { button: b, detail: d });
-          ptr.buttons &= ~ptrBit(b);
-          ptrEv('pointerup', t.el, { button: b });
-          ptrEv('mouseup', t.el, { button: b, detail: d });
-          if (b === 0) {
-            ptrEv('click', t.el, { button: 0, detail: d });
-            if (d === 2) ptrEv('dblclick', t.el, { button: 0, detail: 2 });
-          } else if (b === 2) {
-            ptrEv('contextmenu', t.el, { button: 2 });
-          }
+          ptrSet(nx, ny);
+          var cx = ptr.x, cy = ptr.y, d = n || 1, bit = ptrBit(b);
+          var el = ptrTarget();
+          if (!lockEl) ptrEnter(el);
+          ptrFocus(el); ensureFocus();
+          ptrMoveEv(el, 0, 0);                         // chốt vị trí con trỏ trước khi bấm
+          setTimeout(function () {
+            ptr.x = cx; ptr.y = cy;
+            ptr.buttons |= bit;
+            ptrEv('pointerdown', el, { button: b, detail: d });
+            ptrEv('mousedown', el, { button: b, detail: d });
+            setTimeout(function () {
+              ptr.x = cx; ptr.y = cy;
+              ptr.buttons &= ~bit;
+              ptrEv('pointerup', el, { button: b });
+              ptrEv('mouseup', el, { button: b, detail: d });
+              if (b === 0) {
+                ptrEv('click', el, { button: 0, detail: d });
+                if (d === 2) ptrEv('dblclick', el, { button: 0, detail: 2 });
+              } else if (b === 2) {
+                ptrEv('contextmenu', el, { button: 2 });
+              }
+            }, 70);
+          }, 30);
         },
         ptrWheel: function (nx, ny, dy) {
-          var t = ptrAt(nx, ny);
-          ptrEv('wheel', t.el, { deltaX: 0, deltaY: dy, deltaMode: 0 });
+          ptrSet(nx, ny);
+          ptrEv('wheel', ptrTarget(), { deltaX: 0, deltaY: +dy || 0, deltaMode: 0 });
+        },
+        // Rời chế độ Chuột: nhả nút đang giữ, xóa trạng thái hover
+        ptrReset: function () {
+          var held = ptr.buttons;
+          var el = ptr.over || document.body;
+          if (held && el) {
+            [0, 2, 1].forEach(function (b) {
+              if (held & ptrBit(b)) {
+                ptr.buttons &= ~ptrBit(b);
+                ptrEv('pointerup', el, { button: b });
+                ptrEv('mouseup', el, { button: b });
+              }
+            });
+          }
+          ptr.buttons = 0;
+          if (ptr.over) {
+            ptrEv('pointerout', ptr.over, { relatedTarget: null, button: -1 });
+            ptrEv('mouseout', ptr.over, { relatedTarget: null });
+          }
+          ptr.over = null;
         },
         // Chẩn đoán: gọi từ Web Inspector -> __gfnMouse.stats()
         stats: function () {
           return {
             lock: !!lockEl, pad: mode.pad, kbm: mode.kbm, padOn: padOn, index: padIndex,
-            polls: polls, axes: padAx.slice(), buttons: padBtn.join(''), dataChannelSends: dcCount
+            polls: polls, axes: padAx.slice(), buttons: padBtn.join(''), dataChannelSends: dcCount,
+            ptr: { x: ptr.x, y: ptr.y, buttons: ptr.buttons, sent: ptr.sent, last: ptr.last, relative: !!lockEl }
           };
         }
       };
