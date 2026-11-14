@@ -65,7 +65,7 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
     private let lookLiftCarry: Double = 0.3
 
     private let desktopUA =
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15"
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
 
     // MARK: - Trạng thái
 
@@ -695,28 +695,24 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
 
       var isTop = (window.parent === window);
 
-      // ===== 1. Giả làm Safari trên Mac: không có cảm ứng => GFN hiện giao diện desktop (mọi khung) =====
+      // ===== 1. Giả làm laptop Windows có màn hình cảm ứng (Chrome/Edge) =====
+      // KHÔNG xóa TouchEvent / Touch / TouchList / ontouch*: cú chạm thật của iPad đi thẳng vào web
+      // khi ở chế độ Chuột / Launcher (chạm gốc).
       try {
-        Object.defineProperty(Navigator.prototype, 'maxTouchPoints', { get: function () { return 0; }, configurable: true });
-        Object.defineProperty(Navigator.prototype, 'platform', { get: function () { return 'MacIntel'; }, configurable: true });
-      } catch (e) {}
-      try {
-        ['ontouchstart', 'ontouchend', 'ontouchmove', 'ontouchcancel'].forEach(function (p) {
-          [window, Window.prototype, Document.prototype, HTMLElement.prototype, Element.prototype].forEach(function (o) {
-            try { delete o[p]; } catch (e) {}
-          });
-        });
-        ['TouchEvent', 'Touch', 'TouchList'].forEach(function (n) {
-          try { delete window[n]; } catch (e) {}
-          try { if (n in window) window[n] = undefined; } catch (e) {}
-        });
+        Object.defineProperty(Navigator.prototype, 'maxTouchPoints', { get: function () { return 5; }, configurable: true });
+        Object.defineProperty(Navigator.prototype, 'platform', { get: function () { return 'Win32'; }, configurable: true });
       } catch (e) {}
       try {
         var _mm = window.matchMedia.bind(window);
         window.matchMedia = function (q) {
           var s = String(q).replace(/\s+/g, '');
-          if (/^\((any-)?(pointer:coarse|pointer:none|hover:none)\)$/.test(s)) return _mm('not all');
-          if (/^\((any-)?(pointer:fine|hover:hover)\)$/.test(s)) return _mm('all');
+          // Laptop cảm ứng: con trỏ chính là chuột/trackpad (fine), có thêm cảm ứng (any-pointer: coarse)
+          if (/^\(pointer:fine\)$/.test(s)) return _mm('all');
+          if (/^\(pointer:(coarse|none)\)$/.test(s)) return _mm('not all');
+          if (/^\(any-pointer:(fine|coarse)\)$/.test(s)) return _mm('all');
+          if (/^\(any-pointer:none\)$/.test(s)) return _mm('not all');
+          if (/^\((any-)?hover:hover\)$/.test(s)) return _mm('all');
+          if (/^\((any-)?hover:none\)$/.test(s)) return _mm('not all');
           // Giả làm web app đã "Thêm vào Màn hình chính" (chế độ standalone)
           if (/^\(display-mode:(standalone|fullscreen)\)$/.test(s)) return _mm('all');
           if (/^\(display-mode:browser\)$/.test(s)) return _mm('not all');
