@@ -628,11 +628,35 @@ final class TopBarView: UIView {
 
 // MARK: - Bảng cài đặt kiểu gaming
 
-/// UIScrollView ưu tiên điều khiển bên trong: kéo thanh trượt / bấm nút không bị cuộn dọc cướp cảm ứng
+/// UIScrollView ưu tiên điều khiển bên trong: kéo thanh trượt không bao giờ bị cuộn cướp cảm ứng,
+/// còn đặt ngón lên chỗ khác thì vẫn vuốt cuộn bình thường.
 final class PanelScrollView: UIScrollView {
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        delaysContentTouches = false
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
     override func touchesShouldCancel(in view: UIView) -> Bool {
-        if view is UIControl { return false }
+        if view is UIControl { return false }     // nút / thanh trượt / công tắc giữ nguyên cảm ứng đang kéo
         return super.touchesShouldCancel(in: view)
+    }
+
+    /// Ngón bắt đầu trên thanh trượt => cuộn KHÔNG được bắt đầu (kể cả khi tay kéo hơi chéo)
+    override func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+        if gestureRecognizer === panGestureRecognizer,
+           let hit = hitTest(gestureRecognizer.location(in: self), with: nil), hit is UISlider {
+            return false
+        }
+        return super.gestureRecognizerShouldBegin(gestureRecognizer)
+    }
+}
+
+/// Thanh trượt có vùng chạm rộng hơn (dễ trúng bằng ngón tay)
+final class WideSlider: UISlider {
+    override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
+        bounds.insetBy(dx: -6, dy: -14).contains(point)
     }
 }
 
@@ -718,9 +742,11 @@ final class GamingPanelView: UIView {
         scroll.translatesAutoresizingMaskIntoConstraints = false
         scroll.showsVerticalScrollIndicator = false
         scroll.alwaysBounceVertical = true
-        // UISlider / nút trong bảng nhận cảm ứng NGAY (không bị trễ 150ms) và không bị cuộn nuốt mất
+        // Nút / thanh trượt nhận cảm ứng NGAY (không bị trễ 150ms). KHÔNG tắt canCancelContentTouches:
+        // tắt thì không còn vuốt cuộn được bảng khi ngón đặt lên nút / thanh trượt (gần như cả bảng).
+        // Việc "thanh trượt không bị cuộn cướp" do PanelScrollView lo.
         scroll.delaysContentTouches = false
-        scroll.canCancelContentTouches = false
+        scroll.canCancelContentTouches = true
         card.addSubview(scroll)
 
         stack.axis = .vertical
@@ -1024,7 +1050,7 @@ final class GamingPanelView: UIView {
         let top = UIStackView(arrangedSubviews: [name, val])
         top.axis = .horizontal
 
-        let slider = UISlider()
+        let slider = WideSlider()
         slider.isContinuous = true
         slider.minimumValue = lo
         slider.maximumValue = hi
