@@ -192,6 +192,7 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
         overlay.onJoystick = { [weak self] x, y in self?.sendLeft(x, y) }
         overlay.onEditButton = { [weak self] id, source in self?.presentButtonEditor(id, from: source) }
         overlay.onEditJoystick = { [weak self] source in self?.presentJoystickEditor(from: source) }
+        overlay.onEditLook = { [weak self] source in self?.presentLookPadEditor(from: source) }
         overlay.onLongPressEmpty = { [weak self] point in self?.presentAddButtonAt(point) }
         overlay.reload()
         setupKeyField()

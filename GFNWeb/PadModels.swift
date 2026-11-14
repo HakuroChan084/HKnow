@@ -247,7 +247,31 @@ struct PadSettings: Codable {
     var joyY: CGFloat = 0.70
     var joySize: CGFloat = 150
 
+    // Vùng vuốt xoay camera (Right Stick Look Pad): tâm (lookX, lookY) và kích thước, tất cả theo tỉ lệ màn hình 0...1
+    var lookX: CGFloat = 0.72
+    var lookY: CGFloat = 0.46
+    var lookWidth: CGFloat = 0.38
+    var lookHeight: CGFloat = 0.72
+
     var buttons: [PadButton] = PadSettings.defaultButtons
+
+    /// Giữ vùng xoay camera nằm trọn trong màn hình và không quá nhỏ / quá lớn
+    mutating func clampLookPad() {
+        lookWidth = min(max(lookWidth, 0.12), 0.9)
+        lookHeight = min(max(lookHeight, 0.15), 0.95)
+        lookX = min(max(lookX, lookWidth / 2), 1 - lookWidth / 2)
+        lookY = min(max(lookY, lookHeight / 2), 1 - lookHeight / 2)
+    }
+
+    mutating func resetLookPad() {
+        let d = PadSettings()
+        lookX = d.lookX; lookY = d.lookY; lookWidth = d.lookWidth; lookHeight = d.lookHeight
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case enabled, opacity, lookSensitivity, gyroMode, gyroSensitivity, gyroInvertX, gyroInvertY
+        case joyX, joyY, joySize, lookX, lookY, lookWidth, lookHeight, buttons
+    }
 
     static var defaultButtons: [PadButton] {
         [
@@ -258,6 +282,30 @@ struct PadSettings: Codable {
             PadButton(label: "Ngồi", action: .key(.ctrl), x: 0.40, y: 0.84, size: 56),
             PadButton(label: "Chạy", action: .key(.shift), x: 0.28, y: 0.48, size: 56),
         ]
+    }
+}
+
+// Giải mã "dễ tính": cài đặt cũ (chưa có vùng xoay camera) vẫn đọc được, trường thiếu dùng giá trị mặc định
+extension PadSettings {
+    init(from decoder: Decoder) throws {
+        self.init()
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        enabled = try c.decodeIfPresent(Bool.self, forKey: .enabled) ?? enabled
+        opacity = try c.decodeIfPresent(CGFloat.self, forKey: .opacity) ?? opacity
+        lookSensitivity = try c.decodeIfPresent(CGFloat.self, forKey: .lookSensitivity) ?? lookSensitivity
+        gyroMode = try c.decodeIfPresent(GyroMode.self, forKey: .gyroMode) ?? gyroMode
+        gyroSensitivity = try c.decodeIfPresent(CGFloat.self, forKey: .gyroSensitivity) ?? gyroSensitivity
+        gyroInvertX = try c.decodeIfPresent(Bool.self, forKey: .gyroInvertX) ?? gyroInvertX
+        gyroInvertY = try c.decodeIfPresent(Bool.self, forKey: .gyroInvertY) ?? gyroInvertY
+        joyX = try c.decodeIfPresent(CGFloat.self, forKey: .joyX) ?? joyX
+        joyY = try c.decodeIfPresent(CGFloat.self, forKey: .joyY) ?? joyY
+        joySize = try c.decodeIfPresent(CGFloat.self, forKey: .joySize) ?? joySize
+        lookX = try c.decodeIfPresent(CGFloat.self, forKey: .lookX) ?? lookX
+        lookY = try c.decodeIfPresent(CGFloat.self, forKey: .lookY) ?? lookY
+        lookWidth = try c.decodeIfPresent(CGFloat.self, forKey: .lookWidth) ?? lookWidth
+        lookHeight = try c.decodeIfPresent(CGFloat.self, forKey: .lookHeight) ?? lookHeight
+        buttons = try c.decodeIfPresent([PadButton].self, forKey: .buttons) ?? buttons
+        clampLookPad()
     }
 }
 

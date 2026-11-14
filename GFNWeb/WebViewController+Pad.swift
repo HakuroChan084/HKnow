@@ -287,6 +287,37 @@ extension WebViewController {
         present(sheet, animated: true)
     }
 
+    /// Chỉnh vùng vuốt xoay camera: phóng to / thu nhỏ theo cả khung, chiều ngang hoặc chiều dọc
+    func presentLookPadEditor(from source: UIView) {
+        func resize(_ dw: CGFloat, _ dh: CGFloat) {
+            var s = PadStore.shared.settings
+            s.lookWidth *= dw
+            s.lookHeight *= dh
+            s.clampLookPad()
+            PadStore.shared.settings = s
+            commitPad()
+        }
+        let sheet = UIAlertController(title: "Vùng xoay camera", message: "Kéo khung để di chuyển", preferredStyle: .actionSheet)
+        let items: [(String, CGFloat, CGFloat)] = [
+            ("Phóng to cả khung", 1.15, 1.15), ("Thu nhỏ cả khung", 1 / 1.15, 1 / 1.15),
+            ("Rộng hơn (ngang)", 1.15, 1), ("Hẹp lại (ngang)", 1 / 1.15, 1),
+            ("Cao hơn (dọc)", 1, 1.15), ("Thấp lại (dọc)", 1, 1 / 1.15),
+        ]
+        for (title, dw, dh) in items {
+            sheet.addAction(UIAlertAction(title: title, style: .default) { _ in resize(dw, dh) })
+        }
+        sheet.addAction(UIAlertAction(title: "Đặt lại vị trí & kích thước", style: .destructive) { [weak self] _ in
+            PadStore.shared.settings.resetLookPad()
+            self?.commitPad()
+        })
+        sheet.addAction(UIAlertAction(title: "Xong", style: .cancel))
+        if let pop = sheet.popoverPresentationController {
+            pop.sourceView = source
+            pop.sourceRect = source.bounds
+        }
+        present(sheet, animated: true)
+    }
+
     func presentJoystickEditor(from source: UIView) {
         let sheet = UIAlertController(title: "Joystick đi (W A S D)", message: nil, preferredStyle: .actionSheet)
         sheet.addAction(UIAlertAction(title: "Phóng to", style: .default) { [weak self] _ in

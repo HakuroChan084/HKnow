@@ -84,6 +84,39 @@ final class JoystickView: UIView {
     }
 }
 
+// MARK: - Vùng vuốt xoay camera (chỉ hiện khi chỉnh sửa)
+
+final class LookPadView: UIView {
+    private let label = UILabel()
+    private let border = CAShapeLayer()
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        isUserInteractionEnabled = false
+        backgroundColor = UIColor.systemYellow.withAlphaComponent(0.08)
+        border.fillColor = nil
+        border.strokeColor = UIColor.systemYellow.cgColor
+        border.lineWidth = 2
+        border.lineDashPattern = [8, 6]
+        layer.addSublayer(border)
+        label.text = "Vùng xoay camera"
+        label.textColor = UIColor.white.withAlphaComponent(0.55)
+        label.font = .boldSystemFont(ofSize: 16)
+        label.textAlignment = .center
+        addSubview(label)
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        layer.cornerRadius = 14
+        border.frame = bounds
+        border.path = UIBezierPath(roundedRect: bounds.insetBy(dx: 1, dy: 1), cornerRadius: 14).cgPath
+        label.frame = bounds
+    }
+}
+
 // MARK: - Lớp điều khiển phủ lên WebView
 
 final class ControllerOverlayView: UIView {
@@ -95,6 +128,7 @@ final class ControllerOverlayView: UIView {
     var onJoystick: ((CGFloat, CGFloat) -> Void)?
     var onEditButton: ((UUID, UIView) -> Void)?
     var onEditJoystick: ((UIView) -> Void)?
+    var onEditLook: ((UIView) -> Void)?
     /// Nhấn giữ vào chỗ trống trong chế độ chỉnh sửa: điểm nhấn (toạ độ trong overlay)
     var onLongPressEmpty: ((CGPoint) -> Void)?
 
@@ -117,6 +151,8 @@ final class ControllerOverlayView: UIView {
             reset(notify: true)
             buttonViews.values.forEach { $0.editingStyle = editing }
             joystick.editingStyle = editing
+            // Khi chơi: vùng xoay camera trong suốt 100% (ẩn hẳn), vùng cảm ứng vẫn hoạt động
+            lookPad.isHidden = !editing
             hint.isHidden = !editing
         }
     }
@@ -127,10 +163,12 @@ final class ControllerOverlayView: UIView {
         case button(UUID)
         case editButton(UUID)
         case editJoystick
+        case editLook
     }
 
     private var buttonViews: [UUID: PadButtonView] = [:]
     private let joystick = JoystickView()
+    private let lookPad = LookPadView()
     private let hint = UILabel()
     private lazy var longPress: UILongPressGestureRecognizer = {
         let g = UILongPressGestureRecognizer(target: self, action: #selector(handleLongPress(_:)))
@@ -154,9 +192,11 @@ final class ControllerOverlayView: UIView {
         super.init(frame: frame)
         backgroundColor = .clear
         isMultipleTouchEnabled = true
+        lookPad.isHidden = true
+        addSubview(lookPad)
         addSubview(joystick)
 
-        hint.text = "Chỉnh sửa: kéo để di chuyển • chạm nút để sửa • nhấn giữ chỗ trống để thêm nút"
+        hint.text = "Chỉnh sửa: kéo để di chuyển • chạm nút / khung vàng để sửa • nhấn giữ chỗ trống để thêm nút"
         hint.textColor = .systemYellow
         hint.font = .boldSystemFont(ofSize: 14)
         hint.textAlignment = .center
@@ -170,14 +210,23 @@ final class ControllerOverlayView: UIView {
     // MARK: Nhận cảm ứng
 
     /// Chưa bật bộ điều khiển (overlay ẩn): trả nil => MỌI cú chạm đi thẳng xuống WKWebView.
-    /// Đã bật: overlay nuốt toàn bộ cảm ứng => không có chạm / tap / giữ nào lọt xuống trang web
-    /// => không thể "cướp cò" bắn nhầm. Nút và joystick chỉ nhận trong hình tròn của chúng,
-    /// vùng trống còn lại chỉ dùng để vuốt xoay camera.
+    /// Đang chơi: CHỈ nhận chạm ở nút tròn, joystick và vùng xoay camera. Mọi chỗ trống còn lại
+    /// trả nil => chạm xuyên thẳng xuống trang web (bấm menu, chọn súng, Settings của game).
+    /// Vùng xoay camera nuốt chạm nên vuốt / tap trong đó không bao giờ thành click chuột.
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
         guard !isHidden, alpha > 0.01, isUserInteractionEnabled else { return nil }
-        // HUD đang ẩn: chỉ nút "Ẩn/Hiện HUD" còn nhận chạm, phần còn lại đi thẳng xuống trang web
-        if hudHidden, !editing { return buttonID(at: point) != nil ? self : nil }
-        return super.hitTest(point, with: event)
+        if editing { return super.hitTest(point, with: event) }
+        // HUD đang ẩn: chỉ nút "Ẩn/Hiện HUD" còn nhận chạm
+        if hudHidden { return buttonID(at: point) != nil ? self : nil }
+        if buttonID(at: point) != nil || joystickHit(point) || lookRect.contains(point) { return self }
+        return nil
+    }
+
+    /// Vùng xoay camera (toạ độ trong overlay)
+    private var lookRect: CGRect {
+        let s = PadStore.shared.settings
+        let w = s.lookWidth * bounds.width, h = s.lookHeight * bounds.height
+        return CGRect(x: s.lookX * bounds.width - w / 2, y: s.lookY * bounds.height - h / 2, width: w, height: h)
     }
 
     // MARK: Nhấn giữ để thêm nút (chế độ chỉnh sửa)
@@ -230,6 +279,7 @@ final class ControllerOverlayView: UIView {
             view.bounds = CGRect(x: 0, y: 0, width: b.size, height: b.size)
             view.center = CGPoint(x: b.x * bounds.width, y: b.y * bounds.height)
         }
+        lookPad.frame = lookRect
         joystick.bounds = CGRect(x: 0, y: 0, width: s.joySize, height: s.joySize)
         joystick.center = CGPoint(x: s.joyX * bounds.width, y: s.joyY * bounds.height)
         hint.frame = CGRect(x: 0, y: safeAreaInsets.top + 12, width: bounds.width, height: 24)
@@ -327,6 +377,9 @@ final class ControllerOverlayView: UIView {
                 } else if joystickHit(p) {
                     roles[t] = .editJoystick
                     startPoints[t] = p
+                } else if lookRect.contains(p) {
+                    roles[t] = .editLook
+                    startPoints[t] = p
                 }
                 continue
             }
@@ -338,8 +391,8 @@ final class ControllerOverlayView: UIView {
             } else if joystickHit(p) {
                 roles[t] = .joystick
                 moveJoystick(to: p)
-            } else if !hudHidden {
-                // Vùng trống: CHỈ để vuốt xoay camera, chạm / giữ không bao giờ thành click chuột
+            } else if !hudHidden, lookRect.contains(p) {
+                // Trong vùng xoay camera: CHỈ để vuốt, chạm / giữ không bao giờ thành click chuột
                 roles[t] = .look
             }
         }
@@ -373,6 +426,15 @@ final class ControllerOverlayView: UIView {
                 var s = PadStore.shared.settings
                 s.joyX = min(max(s.joyX + (p.x - prev.x) / bounds.width, 0.05), 0.95)
                 s.joyY = min(max(s.joyY + (p.y - prev.y) / bounds.height, 0.08), 0.95)
+                PadStore.shared.settings = s
+                setNeedsLayout()
+            case .editLook:
+                if let start = startPoints[t], hypot(p.x - start.x, p.y - start.y) > 8 { dragged.insert(t) }
+                guard dragged.contains(t), bounds.width > 0, bounds.height > 0 else { break }
+                var s = PadStore.shared.settings
+                s.lookX += (p.x - prev.x) / bounds.width
+                s.lookY += (p.y - prev.y) / bounds.height
+                s.clampLookPad()
                 PadStore.shared.settings = s
                 setNeedsLayout()
             }
@@ -410,6 +472,9 @@ final class ControllerOverlayView: UIView {
             case .editJoystick:
                 PadStore.shared.save()
                 if !wasDragged, !cancelled { onEditJoystick?(joystick) }
+            case .editLook:
+                PadStore.shared.save()
+                if !wasDragged, !cancelled { onEditLook?(lookPad) }
             }
         }
     }
@@ -421,6 +486,6 @@ extension ControllerOverlayView: UIGestureRecognizerDelegate {
     override func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
         guard gestureRecognizer === longPress else { return true }
         let p = gestureRecognizer.location(in: self)
-        return editing && buttonID(at: p) == nil && !joystickHit(p)
+        return editing && buttonID(at: p) == nil && !joystickHit(p) && !lookRect.contains(p)
     }
 }
