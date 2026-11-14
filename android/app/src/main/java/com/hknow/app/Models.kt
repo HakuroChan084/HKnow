@@ -164,6 +164,23 @@ sealed class PadAction {
             else -> null
         }
 
+        /** Danh sách hành động hay dùng (hiện ngay ở bảng chọn đầu tiên) */
+        val presets: List<Pair<String, PadAction>> by lazy {
+            val list = mutableListOf<Pair<String, PadAction>>(
+                "Chuột trái (bắn)" to Mouse(0), "Chuột phải (ngắm)" to Mouse(2), "Chuột giữa" to Mouse(1),
+                "Space (nhảy)" to Key(KeySpec.SPACE), "Shift (chạy)" to Key(KeySpec.SHIFT), "Ctrl (ngồi)" to Key(KeySpec.CTRL),
+            )
+            for (ch in listOf("R", "E", "F", "Q", "C", "V", "G", "X", "Z")) {
+                KeySpec.parse(ch)?.let { list.add("Phím $ch" to Key(it)) }
+            }
+            list.add("Tab" to Key(KeySpec.TAB)); list.add("Alt" to Key(KeySpec.ALT))
+            for (n in 1..5) KeySpec.parse("$n")?.let { list.add("Phím $n" to Key(it)) }
+            list.add("Bật/Tắt bàn phím ảo" to ToggleKeyboard)
+            list.add("Ẩn/Hiện HUD" to ToggleHud)
+            list.add("Thả chuột (mở menu GFN)" to ReleaseLock)
+            list
+        }
+
         /** Bảng chọn: (tên nhóm, danh sách (nhãn, hành động)) */
         val catalog: List<Pair<String, List<Pair<String, PadAction>>>> by lazy {
             fun k(s: KeySpec) = s.display to (Key(s) as PadAction)
@@ -246,6 +263,9 @@ class PadSettings {
     var lookWidth = 0.38f
     var lookHeight = 0.72f
 
+    /** Chạm = chuột: khi game khóa chuột, vùng trống thành touchpad (kéo = di chuyển con trỏ, chạm = click trái) */
+    var touchMouse = false
+
     var buttons: MutableList<PadButton> = defaultButtons()
 
     fun clampLookPad() {
@@ -269,6 +289,7 @@ class PadSettings {
         .put("joyX", joyX.toDouble()).put("joyY", joyY.toDouble()).put("joySize", joySize.toDouble())
         .put("lookX", lookX.toDouble()).put("lookY", lookY.toDouble())
         .put("lookW", lookWidth.toDouble()).put("lookH", lookHeight.toDouble())
+        .put("touchMouse", touchMouse)
         .put("buttons", JSONArray().also { arr -> buttons.forEach { arr.put(it.toJson()) } })
 
     companion object {
@@ -298,6 +319,7 @@ class PadSettings {
             s.lookY = o.optDouble("lookY", s.lookY.toDouble()).toFloat()
             s.lookWidth = o.optDouble("lookW", s.lookWidth.toDouble()).toFloat()
             s.lookHeight = o.optDouble("lookH", s.lookHeight.toDouble()).toFloat()
+            s.touchMouse = o.optBoolean("touchMouse", s.touchMouse)
             o.optJSONArray("buttons")?.let { arr ->
                 val list = mutableListOf<PadButton>()
                 for (i in 0 until arr.length()) PadButton.fromJson(arr.getJSONObject(i))?.let { list.add(it) }

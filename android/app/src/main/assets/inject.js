@@ -472,6 +472,20 @@
       }
       if (padOn) recomputePad();
     },
+    // Chạm = chuột: di chuyển / click chuột tổng hợp trên phần tử đang khóa, không phụ thuộc chế độ nhập liệu
+    tmove: function (dx, dy) {
+      if (!lockEl) return;
+      fire('pointermove', { movementX: dx, movementY: dy });
+      fire('mousemove', { movementX: dx, movementY: dy });
+    },
+    tbutton: function (b, down) {
+      if (!lockEl) return;
+      var bit = b === 0 ? 1 : b === 2 ? 2 : 4;
+      if (down) buttonsMask |= bit; else buttonsMask &= ~bit;
+      ensureFocus();
+      fire(down ? 'pointerdown' : 'pointerup', { button: b });
+      fire(down ? 'mousedown' : 'mouseup', { button: b });
+    },
     // Nút tay cầm ảo gán trực tiếp (chỉ số theo mapping standard)
     pad: function (i, down) {
       if (!padOn) { if (down) return; }

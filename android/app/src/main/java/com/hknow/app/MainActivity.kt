@@ -28,12 +28,8 @@ import android.webkit.WebChromeClient
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
-import android.widget.Button
 import android.widget.EditText
 import android.widget.FrameLayout
-import android.widget.GridLayout
-import android.widget.LinearLayout
-import android.widget.ScrollView
 import android.widget.TextView
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
@@ -84,6 +80,9 @@ class MainActivity : Activity(), SensorEventListener {
     private var stickVX = 0.0
     private var stickVY = 0.0
     private var stickWasActive = false
+    private var pendingTX = 0f
+    private var pendingTY = 0f
+    private val touchMouseSpeed = 1.6f        // tốc độ con trỏ khi dùng touchpad
     private var lastLeftX = 0f
     private var lastLeftY = 0f
     private var lastFrameNanos = 0L
@@ -180,6 +179,8 @@ class MainActivity : Activity(), SensorEventListener {
         overlay.onEditJoystick = { showJoystickEditor() }
         overlay.onEditLook = { showLookEditor() }
         overlay.onLongPressEmpty = { x, y -> showAddAt(x, y) }
+        overlay.onPointerMove = { dx, dy -> pendingTX += dx * touchMouseSpeed; pendingTY += dy * touchMouseSpeed }
+        overlay.onPointerClick = { touchClick() }
         root.addView(overlay, FrameLayout.LayoutParams(-1, -1))
 
         // ----- Nút menu góc trên trái -----
@@ -193,8 +194,8 @@ class MainActivity : Activity(), SensorEventListener {
             setOnClickListener { showMenu() }
         }
         root.addView(gear, FrameLayout.LayoutParams((36 * dp).toInt(), (36 * dp).toInt()).apply {
-            gravity = Gravity.TOP or Gravity.START
-            leftMargin = (10 * dp).toInt(); topMargin = (10 * dp).toInt()
+            gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
+            topMargin = (10 * dp).toInt()
         })
 
         // ----- Ô nhập liệu ẩn cho bàn phím ảo -----
@@ -321,6 +322,7 @@ class MainActivity : Activity(), SensorEventListener {
             resetStick()
         }
         overlay.visibility = if (show) View.VISIBLE else View.GONE
+        overlay.touchpadActive = s.enabled && s.touchMouse && locked && !padEditing
         overlay.reload()
         updateGyro()
         pushInputConfig()
@@ -370,6 +372,12 @@ class MainActivity : Activity(), SensorEventListener {
         js("window.__gfnMouse&&window.__gfnMouse.button($b,$pressed)")
     }
 
+    /** Chạm nhanh = click trái bằng chuột tổng hợp */
+    private fun touchClick() {
+        js("window.__gfnMouse&&window.__gfnMouse.tbutton(0,true)")
+        root.postDelayed({ js("window.__gfnMouse&&window.__gfnMouse.tbutton(0,false)") }, 50)
+    }
+
     private fun sendPad(i: Int, down: Boolean) {
         if (!inputLive && down) return
         js("window.__gfnMouse&&window.__gfnMouse.pad($i,$down)")
@@ -403,9 +411,14 @@ class MainActivity : Activity(), SensorEventListener {
         if (!inputLive) return
         val dx = pendingDX; val dy = pendingDY
         pendingDX = 0f; pendingDY = 0f
+        val tx = pendingTX; val ty = pendingTY
+        pendingTX = 0f; pendingTY = 0f
         val mode = settings.inputMode
 
         val calls = ArrayList<String>()
+        if (tx != 0f || ty != 0f) {
+            calls.add("m.tmove(${"%.2f".format(java.util.Locale.US, tx)},${"%.2f".format(java.util.Locale.US, ty)})")
+        }
         if (mode.usesKbm && (dx != 0f || dy != 0f)) {
             calls.add("m.move(${"%.2f".format(java.util.Locale.US, dx)},${"%.2f".format(java.util.Locale.US, dy)})")
         }
@@ -558,6 +571,7 @@ class MainActivity : Activity(), SensorEventListener {
         items += mark(s.gyroInvertY) + "Đảo hướng dọc gyro" to { s.gyroInvertY = !s.gyroInvertY; commit() }
         items += "Độ nhạy vuốt màn hình…" to { chooseValue("Độ nhạy vuốt", listOf(0.5f, 0.75f, 1f, 1.5f, 2f, 3f), s.lookSensitivity, { "${it}x" }) { s.lookSensitivity = it; commit() } }
         items += "Độ đậm của nút…" to { chooseValue("Độ đậm", listOf(0.3f, 0.45f, 0.6f, 0.8f, 1f), s.opacity, { "${(it * 100).toInt()}%" }) { s.opacity = it; commit() } }
+        items += mark(s.touchMouse) + "Chạm = chuột (khi game khóa chuột)" to { s.touchMouse = !s.touchMouse; commit() }
         items += "Thả chuột / chạm vào menu GFN" to { js("document.exitPointerLock&&document.exitPointerLock()") }
         items += "Tải lại trang" to { webView.reload() }
         items += "Đặt lại bố cục mặc định" to { PadStore.settings = PadSettings(); commit() }
@@ -600,38 +614,25 @@ class MainActivity : Activity(), SensorEventListener {
         padEditing = true
     }
 
-    // ----- Bảng chọn hành động dạng lưới, chia nhóm -----
+    // ----- Bảng chọn hành động kiểu danh sách: hay dùng + "Tất cả phím & nút tay cầm" + "Phím khác" -----
 
     private fun showActionChooser(title: String, pick: (PadAction) -> Unit) {
-        val dp = resources.displayMetrics.density
-        val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding((12 * dp).toInt(), (8 * dp).toInt(), (12 * dp).toInt(), (8 * dp).toInt()) }
-        val dialog = AlertDialog.Builder(this).setTitle(title)
-            .setView(ScrollView(this).apply { addView(col) })
-            .setNegativeButton("Hủy", null)
-            .setNeutralButton("Phím khác…", null)
-            .create()
-        for ((group, items) in PadAction.catalog) {
-            col.addView(TextView(this).apply {
-                text = group; textSize = 13f; setTextColor(0xFFAAAAAA.toInt())
-                setPadding(0, (12 * dp).toInt(), 0, (4 * dp).toInt())
-            })
-            val grid = GridLayout(this).apply { columnCount = 4 }
-            for ((label, action) in items) {
-                grid.addView(Button(this).apply {
-                    text = label; isAllCaps = false; textSize = 13f
-                    minWidth = 0; minimumWidth = 0
-                    setOnClickListener { dialog.dismiss(); pick(action) }
-                }, GridLayout.LayoutParams().apply {
-                    width = (76 * dp).toInt(); height = (46 * dp).toInt()
-                    setMargins((2 * dp).toInt(), (2 * dp).toInt(), (2 * dp).toInt(), (2 * dp).toInt())
-                })
+        val presets = PadAction.presets
+        val labels = presets.map { it.first } + listOf("Tất cả phím & nút tay cầm…", "Phím khác…")
+        choose(title, labels) { i ->
+            when {
+                i < presets.size -> pick(presets[i].second)
+                i == presets.size -> showGroupChooser(pick)
+                else -> askCustomKey(pick)
             }
-            col.addView(grid)
         }
-        dialog.show()
-        dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener {
-            dialog.dismiss()
-            askCustomKey(pick)
+    }
+
+    private fun showGroupChooser(pick: (PadAction) -> Unit) {
+        val groups = PadAction.catalog
+        choose("Chọn nhóm", groups.map { it.first }) { gi ->
+            val items = groups[gi].second
+            choose(groups[gi].first, items.map { it.first }) { pick(items[it].second) }
         }
     }
 

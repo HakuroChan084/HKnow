@@ -29,6 +29,18 @@ class OverlayView(context: Context) : View(context) {
     /** Nhấn giữ chỗ trống khi chỉnh sửa: toạ độ pixel */
     var onLongPressEmpty: ((Float, Float) -> Unit)? = null
 
+    /** Chế độ "Chạm = chuột": kéo = di chuyển con trỏ trong game, chạm nhanh = click trái */
+    var onPointerMove: ((Float, Float) -> Unit)? = null
+    var onPointerClick: (() -> Unit)? = null
+
+    /** true = vùng trống ngoài nút / joystick / vùng xoay camera hoạt động như touchpad chuột */
+    var touchpadActive = false
+        set(v) {
+            if (field == v) return
+            field = v
+            reset(true)
+        }
+
     var aimHeld = false
         private set
 
@@ -56,6 +68,7 @@ class OverlayView(context: Context) : View(context) {
         data class EditButton(val id: String) : Role()
         object EditJoystick : Role()
         object EditLook : Role()
+        object Pointer : Role()
         object None : Role()
     }
 
@@ -65,6 +78,7 @@ class OverlayView(context: Context) : View(context) {
     private val start = HashMap<Int, FloatArray>()
     private val dragged = HashSet<Int>()
     private val pressed = HashSet<String>()
+    private val downTimes = HashMap<Int, Long>()
     private var joyOffX = 0f
     private var joyOffY = 0f
     private var heldJoy = HashSet<String>()
@@ -158,7 +172,7 @@ class OverlayView(context: Context) : View(context) {
             text.color = 0xFFFFCC00.toInt(); text.textSize = 14f * d
             c.drawText(
                 "Chỉnh sửa: kéo để di chuyển • chạm nút / khung vàng để sửa • nhấn giữ chỗ trống để thêm nút",
-                width / 2f, 36f * d, text
+                width / 2f, 76f * d, text
             )
         }
     }
@@ -223,6 +237,7 @@ class OverlayView(context: Context) : View(context) {
             b != null -> press(id, b)
             joystickHit(x, y) -> { roles[id] = Role.Joystick; moveJoystick(x, y) }
             lookRect().contains(x, y) -> roles[id] = Role.Look      // CHỈ để vuốt, tap không thành click
+            touchpadActive -> { roles[id] = Role.Pointer; downTimes[id] = android.os.SystemClock.uptimeMillis() }
             else -> { start.remove(id); last.remove(id); return false }
         }
         return true
@@ -247,6 +262,7 @@ class OverlayView(context: Context) : View(context) {
 
         when (role) {
             Role.Look -> onLook?.invoke(dx / d, dy / d)
+            Role.Pointer -> onPointerMove?.invoke(dx / d, dy / d)
             Role.Joystick -> moveJoystick(x, y)
             is Role.Button, Role.None -> {}
             is Role.EditButton -> {
@@ -280,6 +296,11 @@ class OverlayView(context: Context) : View(context) {
         dragged.remove(id); start.remove(id); last.remove(id)
         when (role) {
             Role.Look, Role.None -> {}
+            Role.Pointer -> {
+                val t0 = downTimes.remove(id)
+                // Chạm nhanh, gần như không di chuyển = click trái
+                if (!cancelled && !wasDragged && t0 != null && android.os.SystemClock.uptimeMillis() - t0 < 300) onPointerClick?.invoke()
+            }
             Role.Joystick -> {
                 joyOffX = 0f; joyOffY = 0f
                 onJoystick?.invoke(0f, 0f)
@@ -352,7 +373,7 @@ class OverlayView(context: Context) : View(context) {
                 if (r is Role.Button) settings.buttons.firstOrNull { it.id == r.id }?.let { onAction?.invoke(it.action, false) }
             }
         }
-        heldJoy.clear(); roles.clear(); last.clear(); start.clear(); dragged.clear(); pressed.clear()
+        downTimes.clear(); heldJoy.clear(); roles.clear(); last.clear(); start.clear(); dragged.clear(); pressed.clear()
         aimHeld = false
         joyOffX = 0f; joyOffY = 0f
         if (notify) onJoystick?.invoke(0f, 0f)

@@ -18,7 +18,7 @@ extension WebViewController {
         NSLayoutConstraint.activate([
             gearButton.widthAnchor.constraint(equalToConstant: 36),
             gearButton.heightAnchor.constraint(equalToConstant: 36),
-            gearButton.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 10),
+            gearButton.centerXAnchor.constraint(equalTo: view.centerXAnchor),
             gearButton.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 10),
         ])
         refreshMenu()
@@ -71,6 +71,15 @@ extension WebViewController {
             image: UIImage(systemName: "keyboard")
         ) { [weak self] _ in
             self?.toggleKeyboard()
+        }
+
+        let touchMouse = UIAction(
+            title: "Chạm = chuột (khi game khóa chuột)",
+            image: UIImage(systemName: "hand.point.up.left"),
+            state: s.touchMouse ? .on : .off
+        ) { [weak self] _ in
+            store.settings.touchMouse.toggle()
+            self?.commitPad()
         }
 
         let hideHUD = UIAction(
@@ -142,7 +151,7 @@ extension WebViewController {
         }
 
         gearButton.menu = UIMenu(title: "", children: [
-            UIMenu(title: "", options: .displayInline, children: [toggle, inputModeMenu, edit, add, keyboard, hideHUD]),
+            UIMenu(title: "", options: .displayInline, children: [toggle, inputModeMenu, edit, add, keyboard, hideHUD, touchMouse]),
             UIMenu(title: "", options: .displayInline, children: [gyroMode, gyroSens, gyroInvX, gyroInvY]),
             UIMenu(title: "", options: .displayInline, children: [lookSens, opacity]),
             UIMenu(title: "", options: .displayInline, children: [releaseLock, reload, reset]),
@@ -195,18 +204,50 @@ extension WebViewController {
 
     // MARK: - Hộp thoại chọn hành động
 
-    /// Bảng chọn dạng lưới, chia nhóm: tay cầm / phím bổ trợ / phím điều khiển / F1–F12 / mũi tên / A–Z / số & dấu / hệ thống
+    /// Bảng chọn hành động kiểu cũ: danh sách hay dùng + "Tất cả phím & nút tay cầm" (theo nhóm) + "Phím khác…"
     func presentActionChooser(title: String, source: UIView, completion: @escaping (PadAction) -> Void) {
-        let picker = ActionPickerViewController(title: title, groups: PadAction.catalog)
-        picker.onPick = completion
-        picker.onCustomKey = { [weak self] in self?.askCustomKey(completion) }
-        let nav = UINavigationController(rootViewController: picker)
-        nav.modalPresentationStyle = .pageSheet
-        if let sheet = nav.sheetPresentationController {
-            sheet.detents = [.medium(), .large()]
-            sheet.prefersGrabberVisible = true
+        let sheet = UIAlertController(title: title, message: nil, preferredStyle: .actionSheet)
+        for (name, action) in PadAction.presets {
+            sheet.addAction(UIAlertAction(title: name, style: .default) { _ in completion(action) })
         }
-        present(nav, animated: true)
+        sheet.addAction(UIAlertAction(title: "Tất cả phím & nút tay cầm…", style: .default) { [weak self] _ in
+            self?.presentGroupChooser(source: source, completion: completion)
+        })
+        sheet.addAction(UIAlertAction(title: "Phím khác…", style: .default) { [weak self] _ in
+            self?.askCustomKey(completion)
+        })
+        sheet.addAction(UIAlertAction(title: "Hủy", style: .cancel))
+        if let pop = sheet.popoverPresentationController {
+            pop.sourceView = source
+            pop.sourceRect = source.bounds
+        }
+        present(sheet, animated: true)
+    }
+
+    /// Chọn nhóm (tay cầm, phím bổ trợ, F1–F12, A–Z...) rồi chọn phím trong nhóm
+    private func presentGroupChooser(source: UIView, completion: @escaping (PadAction) -> Void) {
+        let sheet = UIAlertController(title: "Chọn nhóm", message: nil, preferredStyle: .actionSheet)
+        for group in PadAction.catalog {
+            sheet.addAction(UIAlertAction(title: group.title, style: .default) { [weak self] _ in
+                let list = UIAlertController(title: group.title, message: nil, preferredStyle: .actionSheet)
+                for item in group.items {
+                    let name = item.detail.map { "\(item.label) — \($0)" } ?? item.label
+                    list.addAction(UIAlertAction(title: name, style: .default) { _ in completion(item.action) })
+                }
+                list.addAction(UIAlertAction(title: "Hủy", style: .cancel))
+                if let pop = list.popoverPresentationController {
+                    pop.sourceView = source
+                    pop.sourceRect = source.bounds
+                }
+                self?.present(list, animated: true)
+            })
+        }
+        sheet.addAction(UIAlertAction(title: "Hủy", style: .cancel))
+        if let pop = sheet.popoverPresentationController {
+            pop.sourceView = source
+            pop.sourceRect = source.bounds
+        }
+        present(sheet, animated: true)
     }
 
     private func askCustomKey(_ completion: @escaping (PadAction) -> Void) {
@@ -365,152 +406,4 @@ final class KeyCatcherField: UITextField, UITextFieldDelegate {
         onReturn?()
         return false
     }
-}
-
-// MARK: - Bảng chọn hành động dạng lưới
-
-final class ActionPickerViewController: UIViewController, UICollectionViewDataSource, UICollectionViewDelegate {
-    var onPick: ((PadAction) -> Void)?
-    var onCustomKey: (() -> Void)?
-    private let groups: [ActionGroup]
-    private var collection: UICollectionView!
-
-    init(title: String, groups: [ActionGroup]) {
-        self.groups = groups
-        super.init(nibName: nil, bundle: nil)
-        self.title = title
-    }
-
-    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
-
-    override func viewDidLoad() {
-        super.viewDidLoad()
-        view.backgroundColor = .systemBackground
-        navigationItem.leftBarButtonItem = UIBarButtonItem(title: "Hủy", style: .plain, target: self, action: #selector(cancel))
-        navigationItem.rightBarButtonItem = UIBarButtonItem(title: "Phím khác…", style: .plain, target: self, action: #selector(custom))
-
-        let layout = UICollectionViewCompositionalLayout { _, _ in
-            let item = NSCollectionLayoutItem(layoutSize: .init(widthDimension: .absolute(78), heightDimension: .absolute(56)))
-            let group = NSCollectionLayoutGroup.horizontal(
-                layoutSize: .init(widthDimension: .fractionalWidth(1), heightDimension: .absolute(56)),
-                subitems: [item]
-            )
-            group.interItemSpacing = .fixed(8)
-            let section = NSCollectionLayoutSection(group: group)
-            section.interGroupSpacing = 8
-            section.contentInsets = .init(top: 4, leading: 12, bottom: 16, trailing: 12)
-            let header = NSCollectionLayoutBoundarySupplementaryItem(
-                layoutSize: .init(widthDimension: .fractionalWidth(1), heightDimension: .absolute(30)),
-                elementKind: UICollectionView.elementKindSectionHeader, alignment: .top
-            )
-            section.boundarySupplementaryItems = [header]
-            return section
-        }
-        collection = UICollectionView(frame: view.bounds, collectionViewLayout: layout)
-        collection.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-        collection.backgroundColor = .systemBackground
-        collection.dataSource = self
-        collection.delegate = self
-        collection.register(ActionCell.self, forCellWithReuseIdentifier: "cell")
-        collection.register(
-            SectionHeader.self, forSupplementaryViewOfKind: UICollectionView.elementKindSectionHeader,
-            withReuseIdentifier: "header"
-        )
-        view.addSubview(collection)
-    }
-
-    @objc private func cancel() { dismiss(animated: true) }
-
-    @objc private func custom() {
-        dismiss(animated: true) { [onCustomKey] in onCustomKey?() }
-    }
-
-    func numberOfSections(in collectionView: UICollectionView) -> Int { groups.count }
-
-    func collectionView(_ collectionView: UICollectionView, numberOfItemsInSection section: Int) -> Int {
-        groups[section].items.count
-    }
-
-    func collectionView(_ collectionView: UICollectionView, cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
-        let cell = collectionView.dequeueReusableCell(withReuseIdentifier: "cell", for: indexPath) as! ActionCell
-        let item = groups[indexPath.section].items[indexPath.item]
-        cell.configure(item.label, item.detail)
-        return cell
-    }
-
-    func collectionView(
-        _ collectionView: UICollectionView, viewForSupplementaryElementOfKind kind: String, at indexPath: IndexPath
-    ) -> UICollectionReusableView {
-        let v = collectionView.dequeueReusableSupplementaryView(
-            ofKind: kind, withReuseIdentifier: "header", for: indexPath
-        ) as! SectionHeader
-        v.label.text = groups[indexPath.section].title
-        return v
-    }
-
-    func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
-        let action = groups[indexPath.section].items[indexPath.item].action
-        dismiss(animated: true) { [onPick] in onPick?(action) }
-    }
-}
-
-private final class ActionCell: UICollectionViewCell {
-    private let title = UILabel()
-    private let detail = UILabel()
-
-    override init(frame: CGRect) {
-        super.init(frame: frame)
-        contentView.backgroundColor = .secondarySystemBackground
-        contentView.layer.cornerRadius = 10
-        title.font = .boldSystemFont(ofSize: 15)
-        title.textAlignment = .center
-        title.adjustsFontSizeToFitWidth = true
-        title.minimumScaleFactor = 0.6
-        detail.font = .systemFont(ofSize: 10)
-        detail.textColor = .secondaryLabel
-        detail.textAlignment = .center
-        detail.adjustsFontSizeToFitWidth = true
-        detail.minimumScaleFactor = 0.6
-        let stack = UIStackView(arrangedSubviews: [title, detail])
-        stack.axis = .vertical
-        stack.spacing = 2
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        contentView.addSubview(stack)
-        NSLayoutConstraint.activate([
-            stack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 4),
-            stack.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -4),
-            stack.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
-        ])
-    }
-
-    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
-
-    func configure(_ label: String, _ sub: String?) {
-        title.text = label
-        detail.text = sub
-        detail.isHidden = (sub ?? "").isEmpty
-    }
-
-    override var isHighlighted: Bool {
-        didSet { contentView.backgroundColor = isHighlighted ? .tertiarySystemFill : .secondarySystemBackground }
-    }
-}
-
-private final class SectionHeader: UICollectionReusableView {
-    let label = UILabel()
-
-    override init(frame: CGRect) {
-        super.init(frame: frame)
-        label.font = .boldSystemFont(ofSize: 13)
-        label.textColor = .secondaryLabel
-        label.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(label)
-        NSLayoutConstraint.activate([
-            label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 14),
-            label.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -14),
-            label.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -4),
-        ])
-    }
-
-    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 }

@@ -169,6 +169,32 @@ enum PadAction: Codable, Equatable {
 
 // MARK: - Danh mục hành động (bảng chọn phân nhóm)
 
+extension PadAction {
+    /// Danh sách hành động hay dùng (hiện ngay ở bảng chọn đầu tiên)
+    static var presets: [(String, PadAction)] {
+        var list: [(String, PadAction)] = [
+            ("Chuột trái (bắn)", .mouse(0)),
+            ("Chuột phải (ngắm)", .mouse(2)),
+            ("Chuột giữa", .mouse(1)),
+            ("Space (nhảy)", .key(.space)),
+            ("Shift (chạy)", .key(.shift)),
+            ("Ctrl (ngồi)", .key(.ctrl)),
+        ]
+        for ch in ["R", "E", "F", "Q", "C", "V", "G", "X", "Z"] {
+            if let k = KeySpec.parse(ch) { list.append(("Phím \(ch)", .key(k))) }
+        }
+        list.append(("Tab", .key(.tab)))
+        list.append(("Alt", .key(.alt)))
+        for n in 1...5 {
+            if let k = KeySpec.parse("\(n)") { list.append(("Phím \(n)", .key(k))) }
+        }
+        list.append(("Bật/Tắt bàn phím ảo", .toggleKeyboard))
+        list.append(("Ẩn/Hiện HUD", .toggleHUD))
+        list.append(("Thả chuột (mở menu GFN)", .releaseLock))
+        return list
+    }
+}
+
 struct ActionItem {
     let label: String       // chữ lớn trên ô
     let detail: String?     // chữ nhỏ bên dưới
@@ -253,6 +279,9 @@ struct PadSettings: Codable {
     var lookWidth: CGFloat = 0.38
     var lookHeight: CGFloat = 0.72
 
+    /// Chạm = chuột: khi game khóa chuột, vùng trống thành touchpad (kéo = di chuyển con trỏ, chạm = click trái)
+    var touchMouse = false
+
     var buttons: [PadButton] = PadSettings.defaultButtons
 
     /// Giữ vùng xoay camera nằm trọn trong màn hình và không quá nhỏ / quá lớn
@@ -270,7 +299,7 @@ struct PadSettings: Codable {
 
     enum CodingKeys: String, CodingKey {
         case enabled, opacity, lookSensitivity, gyroMode, gyroSensitivity, gyroInvertX, gyroInvertY
-        case joyX, joyY, joySize, lookX, lookY, lookWidth, lookHeight, buttons
+        case joyX, joyY, joySize, lookX, lookY, lookWidth, lookHeight, touchMouse, buttons
     }
 
     static var defaultButtons: [PadButton] {
@@ -304,6 +333,7 @@ extension PadSettings {
         lookY = try c.decodeIfPresent(CGFloat.self, forKey: .lookY) ?? lookY
         lookWidth = try c.decodeIfPresent(CGFloat.self, forKey: .lookWidth) ?? lookWidth
         lookHeight = try c.decodeIfPresent(CGFloat.self, forKey: .lookHeight) ?? lookHeight
+        touchMouse = try c.decodeIfPresent(Bool.self, forKey: .touchMouse) ?? touchMouse
         buttons = try c.decodeIfPresent([PadButton].self, forKey: .buttons) ?? buttons
         clampLookPad()
     }

@@ -73,11 +73,11 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
     private let motion = CMMotionManager()
     private var lastMotionTimestamp: TimeInterval = 0
 
-    // Con trỏ chuột kiểu Windows: vẽ đè lên con trỏ hệ thống (đã bị ẩn) khi chuột đang rê trong app.
-    // Click / chuột phải / cuộn / hover vẫn là sự kiện chuột GỐC của iPadOS gửi thẳng vào trang web.
-    private let cursorView = CursorView()
-    private var cursorPos = CGPoint.zero
-    private var pointerInside = false
+    /// Độ dời con trỏ (chế độ "Chạm = chuột") gộp theo từng khung hình
+    private var pendingTX: CGFloat = 0
+    private var pendingTY: CGFloat = 0
+    /// Tốc độ con trỏ khi dùng touchpad (nhân với độ dời ngón tay)
+    private let touchMouseSpeed: CGFloat = 1.6
 
     /// Chống "tự bấm chuột": thời điểm bắt đầu khóa chuột + các nút đã thật sự được nhấn trong lúc khóa
 
@@ -100,8 +100,6 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
             pendingDX = 0; pendingDY = 0
             resetStick()
             overlay.reset(notify: false)
-            setNeedsUpdateOfPrefersPointerLocked()
-            updateCursorVisibility()
             applyPadState()
         }
     }
@@ -129,8 +127,6 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
 
     override var prefersStatusBarHidden: Bool { true }
     override var prefersHomeIndicatorAutoHidden: Bool { true }
-    /// Chỉ khóa con trỏ hệ thống khi vào game (xoay camera). Ngoài game để chuột chạy tự nhiên.
-    override var prefersPointerLocked: Bool { isMouseCaptured }
     override var supportedInterfaceOrientations: UIInterfaceOrientationMask { .all }
 
     // MARK: - Vòng đời
@@ -193,13 +189,17 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
         overlay.onEditButton = { [weak self] id, source in self?.presentButtonEditor(id, from: source) }
         overlay.onEditJoystick = { [weak self] source in self?.presentJoystickEditor(from: source) }
         overlay.onEditLook = { [weak self] source in self?.presentLookPadEditor(from: source) }
+        overlay.onPointerMove = { [weak self] dx, dy in
+            guard let self else { return }
+            self.pendingTX += dx * self.touchMouseSpeed
+            self.pendingTY += dy * self.touchMouseSpeed
+        }
+        overlay.onPointerClick = { [weak self] in self?.touchClick() }
         overlay.onLongPressEmpty = { [weak self] point in self?.presentAddButtonAt(point) }
         overlay.reload()
         setupKeyField()
 
         setupGearButton()
-        view.addSubview(cursorView)     // luôn nằm trên cùng
-        setupPointer()
 
         // Gửi chuyển động chuột/gyro/vuốt vào trang theo nhịp màn hình (tối đa 120Hz)
         let link = CADisplayLink(target: self, selector: #selector(flushMouse(_:)))
@@ -244,6 +244,7 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
         overlay.isHidden = !show
         overlay.isUserInteractionEnabled = show
         overlay.alpha = padEditing ? 1 : s.opacity
+        overlay.touchpadActive = s.enabled && s.touchMouse && isMouseCaptured && !padEditing
         updateGyro()
         refreshMenu()
         pushInputConfig()
@@ -344,35 +345,6 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
         pendingDY += CGFloat(pitchRate * k * (s.gyroInvertY ? -1 : 1))
     }
 
-    // MARK: - Con trỏ chuột kiểu Windows (ngoài game)
-
-    private func setupPointer() {
-        // Theo dõi vị trí con trỏ chuột để vẽ mũi tên Windows
-        let hover = UIHoverGestureRecognizer(target: self, action: #selector(handleHover(_:)))
-        view.addGestureRecognizer(hover)
-
-        // Ẩn con trỏ tròn mặc định của iPadOS (đặt trên cả view lẫn webView)
-        view.addInteraction(UIPointerInteraction(delegate: self))
-        webView.addInteraction(UIPointerInteraction(delegate: self))
-    }
-
-    @objc private func handleHover(_ g: UIHoverGestureRecognizer) {
-        switch g.state {
-        case .began, .changed:
-            pointerInside = true
-            cursorPos = g.location(in: view)
-        default:
-            pointerInside = false
-        }
-        updateCursorVisibility()
-    }
-
-    private func updateCursorVisibility() {
-        let show = pointerInside && !isMouseCaptured
-        cursorView.isHidden = !show
-        if show { cursorView.place(at: cursorPos) }
-    }
-
     // MARK: - Gửi input vào trang (theo nhịp màn hình)
 
     @objc private func flushMouse(_ link: CADisplayLink) {
@@ -383,9 +355,15 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
         guard inputLive else { return }
         let dx = pendingDX, dy = pendingDY
         pendingDX = 0; pendingDY = 0
+        let tx = pendingTX, ty = pendingTY
+        pendingTX = 0; pendingTY = 0
         let mode = inputMode
 
         var calls: [String] = []
+        // Chạm = chuột: con trỏ trong game (không phụ thuộc chế độ nhập liệu)
+        if tx != 0 || ty != 0 {
+            calls.append(String(format: "m.tmove(%.2f,%.2f)", tx, ty))
+        }
         // Kênh chuột tổng hợp: gửi độ dời thô (vuốt / gyro) theo từng khung hình
         if mode.usesKBM, dx != 0 || dy != 0 {
             calls.append(String(format: "m.move(%.2f,%.2f)", dx, dy))
@@ -451,6 +429,14 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
         webView.evaluateJavaScript(
             "window.__gfnMouse&&window.__gfnMouse.button(\(button),\(pressed ? "true" : "false"))"
         )
+    }
+
+    /// Chạm nhanh = click trái bằng chuột tổng hợp
+    private func touchClick() {
+        webView.evaluateJavaScript("window.__gfnMouse&&window.__gfnMouse.tbutton(0,true)")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+            self?.webView.evaluateJavaScript("window.__gfnMouse&&window.__gfnMouse.tbutton(0,false)")
+        }
     }
 
     private func sendPad(_ index: Int, _ down: Bool) {
@@ -1032,6 +1018,20 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
           }
           if (padOn) recomputePad();
         },
+        // Chạm = chuột: di chuyển / click chuột tổng hợp trên phần tử đang khóa, không phụ thuộc chế độ nhập liệu
+        tmove: function (dx, dy) {
+          if (!lockEl) return;
+          fire('pointermove', { movementX: dx, movementY: dy });
+          fire('mousemove', { movementX: dx, movementY: dy });
+        },
+        tbutton: function (b, down) {
+          if (!lockEl) return;
+          var bit = b === 0 ? 1 : b === 2 ? 2 : 4;
+          if (down) buttonsMask |= bit; else buttonsMask &= ~bit;
+          ensureFocus();
+          fire(down ? 'pointerdown' : 'pointerup', { button: b });
+          fire(down ? 'mousedown' : 'mouseup', { button: b });
+        },
         // Nút tay cầm ảo gán trực tiếp (chỉ số theo mapping standard)
         pad: function (i, down) {
           if (!padOn) { if (down) return; }
@@ -1087,16 +1087,4 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
       syncPad();
     })();
     """#
-}
-
-// MARK: - Ẩn con trỏ tròn của iPadOS (app tự vẽ mũi tên Windows)
-
-extension WebViewController: UIPointerInteractionDelegate {
-    func pointerInteraction(_ interaction: UIPointerInteraction, regionFor request: UIPointerRegionRequest, defaultRegion: UIPointerRegion) -> UIPointerRegion? {
-        defaultRegion
-    }
-
-    func pointerInteraction(_ interaction: UIPointerInteraction, styleFor region: UIPointerRegion) -> UIPointerStyle? {
-        UIPointerStyle.hidden()
-    }
 }

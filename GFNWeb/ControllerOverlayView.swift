@@ -129,6 +129,17 @@ final class ControllerOverlayView: UIView {
     var onEditButton: ((UUID, UIView) -> Void)?
     var onEditJoystick: ((UIView) -> Void)?
     var onEditLook: ((UIView) -> Void)?
+    /// Chế độ "Chạm = chuột": kéo ngón tay = di chuyển con trỏ trong game, chạm nhanh = click trái
+    var onPointerMove: ((CGFloat, CGFloat) -> Void)?
+    var onPointerClick: (() -> Void)?
+
+    /// true = vùng trống ngoài nút / joystick / vùng xoay camera hoạt động như touchpad chuột
+    var touchpadActive = false {
+        didSet {
+            guard oldValue != touchpadActive else { return }
+            reset(notify: true)
+        }
+    }
     /// Nhấn giữ vào chỗ trống trong chế độ chỉnh sửa: điểm nhấn (toạ độ trong overlay)
     var onLongPressEmpty: ((CGPoint) -> Void)?
 
@@ -164,6 +175,7 @@ final class ControllerOverlayView: UIView {
         case editButton(UUID)
         case editJoystick
         case editLook
+        case pointer
     }
 
     private var buttonViews: [UUID: PadButtonView] = [:]
@@ -182,6 +194,7 @@ final class ControllerOverlayView: UIView {
     private var roles: [UITouch: Role] = [:]
     private var startPoints: [UITouch: CGPoint] = [:]
     private var dragged: Set<UITouch> = []
+    private var startTimes: [UITouch: TimeInterval] = [:]
     private var heldJoyCodes: Set<String> = []
 
     private let joyKeys: [String: KeySpec] = [
@@ -218,6 +231,7 @@ final class ControllerOverlayView: UIView {
         if editing { return super.hitTest(point, with: event) }
         // HUD đang ẩn: chỉ nút "Ẩn/Hiện HUD" còn nhận chạm
         if hudHidden { return buttonID(at: point) != nil ? self : nil }
+        if touchpadActive { return self }
         if buttonID(at: point) != nil || joystickHit(point) || lookRect.contains(point) { return self }
         return nil
     }
@@ -282,7 +296,7 @@ final class ControllerOverlayView: UIView {
         lookPad.frame = lookRect
         joystick.bounds = CGRect(x: 0, y: 0, width: s.joySize, height: s.joySize)
         joystick.center = CGPoint(x: s.joyX * bounds.width, y: s.joyY * bounds.height)
-        hint.frame = CGRect(x: 0, y: safeAreaInsets.top + 12, width: bounds.width, height: 24)
+        hint.frame = CGRect(x: 0, y: safeAreaInsets.top + 56, width: bounds.width, height: 24)
     }
 
     // MARK: Reset
@@ -299,6 +313,7 @@ final class ControllerOverlayView: UIView {
         heldJoyCodes.removeAll()
         roles.removeAll()
         startPoints.removeAll()
+        startTimes.removeAll()
         dragged.removeAll()
         aimHeld = false
         buttonViews.values.forEach { $0.setPressed(false) }
@@ -394,6 +409,10 @@ final class ControllerOverlayView: UIView {
             } else if !hudHidden, lookRect.contains(p) {
                 // Trong vùng xoay camera: CHỈ để vuốt, chạm / giữ không bao giờ thành click chuột
                 roles[t] = .look
+            } else if touchpadActive, !hudHidden {
+                roles[t] = .pointer
+                startPoints[t] = p
+                startTimes[t] = t.timestamp
             }
         }
     }
@@ -406,6 +425,9 @@ final class ControllerOverlayView: UIView {
             switch role {
             case .look:
                 onLook?(p.x - prev.x, p.y - prev.y)
+            case .pointer:
+                if let start = startPoints[t], hypot(p.x - start.x, p.y - start.y) > 10 { dragged.insert(t) }
+                onPointerMove?(p.x - prev.x, p.y - prev.y)
             case .joystick:
                 moveJoystick(to: p)
             case .button:
@@ -455,9 +477,13 @@ final class ControllerOverlayView: UIView {
             let wasDragged = dragged.contains(t)
             dragged.remove(t)
             startPoints[t] = nil
+            let began = startTimes.removeValue(forKey: t)
             switch role {
             case .look:
                 break
+            case .pointer:
+                // Chạm nhanh, gần như không di chuyển = click trái
+                if !cancelled, !wasDragged, let b = began, t.timestamp - b < 0.3 { onPointerClick?() }
             case .joystick:
                 joystick.setOffset(.zero)
                 onJoystick?(0, 0)
