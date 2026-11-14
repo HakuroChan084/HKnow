@@ -645,11 +645,13 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
         };
       } catch (e) {}
 
-      // Khi đang khóa: chặn sự kiện chuột "thật" để khỏi bị nhân đôi với sự kiện native
+      // Chỉ ở chế độ chuột-phím tổng hợp (kbm) mới chặn sự kiện chuột "thật" khi đang khóa, để khỏi bị nhân đôi.
+      // Ở chế độ tay cầm KHÔNG chặn gì: vùng chạm xuyên xuống trang (menu, chọn súng, Settings) phải bấm được.
+      // (Cảm ứng ở nút / joystick / vùng xoay camera đã bị lớp điều khiển native nuốt từ trước.)
       ['mousemove', 'mousedown', 'mouseup', 'click', 'dblclick', 'auxclick', 'contextmenu',
        'pointermove', 'pointerdown', 'pointerup'].forEach(function (t) {
         window.addEventListener(t, function (e) {
-          if (lockEl && e.isTrusted) { e.stopImmediatePropagation(); e.preventDefault(); }
+          if (lockEl && mode.kbm && e.isTrusted) { e.stopImmediatePropagation(); e.preventDefault(); }
         }, true);
       });
 

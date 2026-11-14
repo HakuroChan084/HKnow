@@ -1,4 +1,4 @@
-name: Build IPA
+name: Build IPA + APK
 
 on:
   workflow_dispatch:   # cho phép bấm nút "Run workflow" thủ công
@@ -43,3 +43,34 @@ jobs:
         with:
           name: GFNWeb-ipa
           path: GFNWeb.ipa
+
+  # ===== Bản Android (APK) – chạy song song với bản iOS, dùng chung đoạn JS tay cầm ảo =====
+  build-apk:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Lấy source code
+        uses: actions/checkout@v4
+
+      - name: Đồng bộ JS dùng chung từ bản iOS
+        run: python3 tools/sync_js.py
+
+      - name: Cài JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Cài Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.9"
+
+      - name: Build APK (ký bằng khóa debug, cài thẳng được)
+        working-directory: android
+        run: gradle --no-daemon assembleDebug
+
+      - name: Upload file apk
+        uses: actions/upload-artifact@v4
+        with:
+          name: HKnow-apk
+          path: android/app/build/outputs/apk/debug/app-debug.apk
