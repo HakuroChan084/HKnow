@@ -10,8 +10,9 @@ android {
         applicationId 'com.example.hknow'
         minSdk 24
         targetSdk 34
-        versionCode 1
-        versionName '1.0'
+        // Workflow Build APK truyền -PverCode=... -PverName=... để mỗi lần build ra một phiên bản khác
+        versionCode (project.findProperty('verCode') ?: '1').toInteger()
+        versionName (project.findProperty('verName') ?: '1.0')
     }
 
     compileOptions {
