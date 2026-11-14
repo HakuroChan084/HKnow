@@ -66,12 +66,19 @@ extension WebViewController {
             self?.addButtonFlow()
         }
 
-        let test = UIAction(
-            title: "Thử vuốt toàn màn hình (ngoài game)",
-            image: UIImage(systemName: "hand.draw"),
-            state: padTestMode ? .on : .off
+        let keyboard = UIAction(
+            title: keyField.isFirstResponder ? "Tắt bàn phím ảo" : "Bật bàn phím ảo",
+            image: UIImage(systemName: "keyboard")
         ) { [weak self] _ in
-            self?.padTestMode.toggle()
+            self?.toggleKeyboard()
+        }
+
+        let hideHUD = UIAction(
+            title: overlay.hudHidden ? "Hiện HUD" : "Ẩn HUD (chạm tự do vào menu game)",
+            image: UIImage(systemName: overlay.hudHidden ? "eye" : "eye.slash")
+        ) { [weak self] _ in
+            guard let self else { return }
+            self.perform(.toggleHUD, down: true)
         }
 
         let inputModeMenu = UIMenu(
@@ -135,7 +142,7 @@ extension WebViewController {
         }
 
         gearButton.menu = UIMenu(title: "", children: [
-            UIMenu(title: "", options: .displayInline, children: [toggle, inputModeMenu, edit, add, test]),
+            UIMenu(title: "", options: .displayInline, children: [toggle, inputModeMenu, edit, add, keyboard, hideHUD]),
             UIMenu(title: "", options: .displayInline, children: [gyroMode, gyroSens, gyroInvX, gyroInvY]),
             UIMenu(title: "", options: .displayInline, children: [lookSens, opacity]),
             UIMenu(title: "", options: .displayInline, children: [releaseLock, reload, reset]),
@@ -145,32 +152,61 @@ extension WebViewController {
     // MARK: - Thêm nút
 
     func addButtonFlow() {
-        presentActionChooser(title: "Chọn hành động cho nút mới", source: gearButton) { [weak self] action in
-            guard let self else { return }
-            let button = PadButton(label: action.defaultLabel, action: action, x: 0.5, y: 0.5, size: 64)
-            PadStore.shared.settings.buttons.append(button)
-            PadStore.shared.save()
-            self.overlay.reload()
-            self.padEditing = true     // bật chế độ chỉnh sửa để kéo nút tới chỗ mong muốn
+        addButton(at: CGPoint(x: 0.5, y: 0.5), source: gearButton)
+    }
+
+    /// Nhấn giữ vào chỗ trống (chế độ chỉnh sửa): popup thêm nút ngay tại điểm vừa nhấn
+    func presentAddButtonAt(_ point: CGPoint) {
+        guard padEditing, overlay.bounds.width > 0, overlay.bounds.height > 0 else { return }
+        let norm = CGPoint(
+            x: min(max(point.x / overlay.bounds.width, 0.03), 0.97),
+            y: min(max(point.y / overlay.bounds.height, 0.05), 0.95)
+        )
+        let sheet = UIAlertController(title: "Thêm nút tại đây", message: nil, preferredStyle: .actionSheet)
+        sheet.addAction(UIAlertAction(title: "Chọn hành động / phím…", style: .default) { [weak self] _ in
+            self?.addButton(at: norm, source: self?.overlay ?? UIView())
+        })
+        for action in [PadAction.mouse(0), .mouse(2), .key(.space), .toggleKeyboard, .toggleHUD] {
+            sheet.addAction(UIAlertAction(title: action.title, style: .default) { [weak self] _ in
+                self?.insertButton(action, at: norm)
+            })
         }
+        sheet.addAction(UIAlertAction(title: "Hủy", style: .cancel))
+        if let pop = sheet.popoverPresentationController {
+            pop.sourceView = overlay
+            pop.sourceRect = CGRect(x: point.x, y: point.y, width: 1, height: 1)
+        }
+        present(sheet, animated: true)
+    }
+
+    private func addButton(at norm: CGPoint, source: UIView) {
+        presentActionChooser(title: "Chọn hành động cho nút mới", source: source) { [weak self] action in
+            self?.insertButton(action, at: norm)
+        }
+    }
+
+    private func insertButton(_ action: PadAction, at norm: CGPoint) {
+        let button = PadButton(label: action.defaultLabel, action: action, x: norm.x, y: norm.y, size: 64)
+        PadStore.shared.settings.buttons.append(button)
+        PadStore.shared.save()
+        overlay.reload()
+        padEditing = true     // bật chế độ chỉnh sửa để kéo nút tới chỗ mong muốn
     }
 
     // MARK: - Hộp thoại chọn hành động
 
+    /// Bảng chọn dạng lưới, chia nhóm: tay cầm / phím bổ trợ / phím điều khiển / F1–F12 / mũi tên / A–Z / số & dấu / hệ thống
     func presentActionChooser(title: String, source: UIView, completion: @escaping (PadAction) -> Void) {
-        let sheet = UIAlertController(title: title, message: nil, preferredStyle: .actionSheet)
-        for (name, action) in PadAction.presets {
-            sheet.addAction(UIAlertAction(title: name, style: .default) { _ in completion(action) })
+        let picker = ActionPickerViewController(title: title, groups: PadAction.catalog)
+        picker.onPick = completion
+        picker.onCustomKey = { [weak self] in self?.askCustomKey(completion) }
+        let nav = UINavigationController(rootViewController: picker)
+        nav.modalPresentationStyle = .pageSheet
+        if let sheet = nav.sheetPresentationController {
+            sheet.detents = [.medium(), .large()]
+            sheet.prefersGrabberVisible = true
         }
-        sheet.addAction(UIAlertAction(title: "Phím khác…", style: .default) { [weak self] _ in
-            self?.askCustomKey(completion)
-        })
-        sheet.addAction(UIAlertAction(title: "Hủy", style: .cancel))
-        if let pop = sheet.popoverPresentationController {
-            pop.sourceView = source
-            pop.sourceRect = source.bounds
-        }
-        present(sheet, animated: true)
+        present(nav, animated: true)
     }
 
     private func askCustomKey(_ completion: @escaping (PadAction) -> Void) {
@@ -222,6 +258,16 @@ extension WebViewController {
             })
             self?.present(alert, animated: true)
         })
+        sheet.addAction(UIAlertAction(title: "Nhân bản", style: .default) { [weak self] _ in
+            guard let self, let src = PadStore.shared.settings.buttons.first(where: { $0.id == id }) else { return }
+            var copy = src
+            copy.id = UUID()
+            copy.x = min(src.x + 0.07, 0.97)
+            copy.y = min(src.y + 0.10, 0.95)
+            PadStore.shared.settings.buttons.append(copy)
+            PadStore.shared.save()
+            self.overlay.reload()
+        })
         sheet.addAction(UIAlertAction(title: "Phóng to", style: .default) { [weak self] _ in
             self?.mutateButton(id) { $0.size = min($0.size * 1.2, 220) }
         })
@@ -258,4 +304,182 @@ extension WebViewController {
         }
         present(sheet, animated: true)
     }
+}
+
+// MARK: - Ô nhập liệu ẩn: nhận ký tự từ bàn phím ảo iOS
+
+final class KeyCatcherField: UITextField, UITextFieldDelegate {
+    var onText: ((String) -> Void)?
+    var onBackspace: (() -> Void)?
+    var onReturn: (() -> Void)?
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        delegate = self
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        delegate = self
+    }
+
+    override func deleteBackward() { onBackspace?() }
+
+    func textField(_ textField: UITextField, shouldChangeCharactersIn range: NSRange, replacementString string: String) -> Bool {
+        if string == "\n" { onReturn?() } else if !string.isEmpty { onText?(string) }
+        return false     // ô luôn rỗng: không giữ chữ lại
+    }
+
+    func textFieldShouldReturn(_ textField: UITextField) -> Bool {
+        onReturn?()
+        return false
+    }
+}
+
+// MARK: - Bảng chọn hành động dạng lưới
+
+final class ActionPickerViewController: UIViewController, UICollectionViewDataSource, UICollectionViewDelegate {
+    var onPick: ((PadAction) -> Void)?
+    var onCustomKey: (() -> Void)?
+    private let groups: [ActionGroup]
+    private var collection: UICollectionView!
+
+    init(title: String, groups: [ActionGroup]) {
+        self.groups = groups
+        super.init(nibName: nil, bundle: nil)
+        self.title = title
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        view.backgroundColor = .systemBackground
+        navigationItem.leftBarButtonItem = UIBarButtonItem(title: "Hủy", style: .plain, target: self, action: #selector(cancel))
+        navigationItem.rightBarButtonItem = UIBarButtonItem(title: "Phím khác…", style: .plain, target: self, action: #selector(custom))
+
+        let layout = UICollectionViewCompositionalLayout { _, _ in
+            let item = NSCollectionLayoutItem(layoutSize: .init(widthDimension: .absolute(78), heightDimension: .absolute(56)))
+            let group = NSCollectionLayoutGroup.horizontal(
+                layoutSize: .init(widthDimension: .fractionalWidth(1), heightDimension: .absolute(56)),
+                subitems: [item]
+            )
+            group.interItemSpacing = .fixed(8)
+            let section = NSCollectionLayoutSection(group: group)
+            section.interGroupSpacing = 8
+            section.contentInsets = .init(top: 4, leading: 12, bottom: 16, trailing: 12)
+            let header = NSCollectionLayoutBoundarySupplementaryItem(
+                layoutSize: .init(widthDimension: .fractionalWidth(1), heightDimension: .absolute(30)),
+                elementKind: UICollectionView.elementKindSectionHeader, alignment: .top
+            )
+            section.boundarySupplementaryItems = [header]
+            return section
+        }
+        collection = UICollectionView(frame: view.bounds, collectionViewLayout: layout)
+        collection.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        collection.backgroundColor = .systemBackground
+        collection.dataSource = self
+        collection.delegate = self
+        collection.register(ActionCell.self, forCellWithReuseIdentifier: "cell")
+        collection.register(
+            SectionHeader.self, forSupplementaryViewOfKind: UICollectionView.elementKindSectionHeader,
+            withReuseIdentifier: "header"
+        )
+        view.addSubview(collection)
+    }
+
+    @objc private func cancel() { dismiss(animated: true) }
+
+    @objc private func custom() {
+        dismiss(animated: true) { [onCustomKey] in onCustomKey?() }
+    }
+
+    func numberOfSections(in collectionView: UICollectionView) -> Int { groups.count }
+
+    func collectionView(_ collectionView: UICollectionView, numberOfItemsInSection section: Int) -> Int {
+        groups[section].items.count
+    }
+
+    func collectionView(_ collectionView: UICollectionView, cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
+        let cell = collectionView.dequeueReusableCell(withReuseIdentifier: "cell", for: indexPath) as! ActionCell
+        let item = groups[indexPath.section].items[indexPath.item]
+        cell.configure(item.label, item.detail)
+        return cell
+    }
+
+    func collectionView(
+        _ collectionView: UICollectionView, viewForSupplementaryElementOfKind kind: String, at indexPath: IndexPath
+    ) -> UICollectionReusableView {
+        let v = collectionView.dequeueReusableSupplementaryView(
+            ofKind: kind, withReuseIdentifier: "header", for: indexPath
+        ) as! SectionHeader
+        v.label.text = groups[indexPath.section].title
+        return v
+    }
+
+    func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
+        let action = groups[indexPath.section].items[indexPath.item].action
+        dismiss(animated: true) { [onPick] in onPick?(action) }
+    }
+}
+
+private final class ActionCell: UICollectionViewCell {
+    private let title = UILabel()
+    private let detail = UILabel()
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        contentView.backgroundColor = .secondarySystemBackground
+        contentView.layer.cornerRadius = 10
+        title.font = .boldSystemFont(ofSize: 15)
+        title.textAlignment = .center
+        title.adjustsFontSizeToFitWidth = true
+        title.minimumScaleFactor = 0.6
+        detail.font = .systemFont(ofSize: 10)
+        detail.textColor = .secondaryLabel
+        detail.textAlignment = .center
+        detail.adjustsFontSizeToFitWidth = true
+        detail.minimumScaleFactor = 0.6
+        let stack = UIStackView(arrangedSubviews: [title, detail])
+        stack.axis = .vertical
+        stack.spacing = 2
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        contentView.addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 4),
+            stack.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -4),
+            stack.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
+        ])
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    func configure(_ label: String, _ sub: String?) {
+        title.text = label
+        detail.text = sub
+        detail.isHidden = (sub ?? "").isEmpty
+    }
+
+    override var isHighlighted: Bool {
+        didSet { contentView.backgroundColor = isHighlighted ? .tertiarySystemFill : .secondarySystemBackground }
+    }
+}
+
+private final class SectionHeader: UICollectionReusableView {
+    let label = UILabel()
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        label.font = .boldSystemFont(ofSize: 13)
+        label.textColor = .secondaryLabel
+        label.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(label)
+        NSLayoutConstraint.activate([
+            label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 14),
+            label.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -14),
+            label.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -4),
+        ])
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 }

@@ -1,6 +1,5 @@
 import UIKit
 import WebKit
-import GameController
 import CoreMotion
 
 /// Cách gửi input (nút ảo, joystick, vuốt, gyro, chuột thật) vào trang GeForce NOW.
@@ -27,19 +26,12 @@ enum InputMode: Int, CaseIterable {
 /// App chỉ gồm 1 WebView toàn màn hình mở trang GeForce NOW, kèm:
 ///  1. Giả lập Safari trên Mac (không cảm ứng) để GFN luôn hiện giao diện desktop.
 ///  2. Tay cầm Xbox ảo (Gamepad API) + chuột/phím tổng hợp -> điều khiển nhân vật trong game.
-///  3. Chuột native (GCMouse) -> xoay camera 360° trong game FPS.
-///  4. Bộ điều khiển ảo tùy chỉnh (joystick đi, vuốt để nhìn, nút bắn/ngắm/phím...) + gyro.
+///  3. Bộ điều khiển ảo tùy chỉnh (joystick đi, vuốt để nhìn, nút bắn/ngắm/phím...) + gyro.
 final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDelegate, WKScriptMessageHandler {
 
     // MARK: - Cấu hình (có thể chỉnh)
 
     private let startURL = URL(string: "https://play.geforcenow.com")!
-
-    /// Độ nhạy chuột thật. Tăng nếu thấy camera xoay chậm, giảm nếu xoay quá nhanh.
-    private let mouseSensitivity: CGFloat = 1.0
-
-    /// Nếu nhìn lên/xuống của CHUỘT THẬT bị ngược thì đổi true <-> false.
-    private let negateY = true
 
     /// Số pixel chuột tương ứng 1 radian xoay khi dùng gyro (ở độ nhạy 1.0)
     private let gyroPixelsPerRadian: Double = 700
@@ -88,8 +80,6 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
     private var pointerInside = false
 
     /// Chống "tự bấm chuột": thời điểm bắt đầu khóa chuột + các nút đã thật sự được nhấn trong lúc khóa
-    private var captureStart: TimeInterval = 0
-    private var downButtons: Set<Int> = []
 
     /// Chế độ gửi input, lưu lại giữa các lần mở app. Mặc định: tay cầm ảo.
     var inputMode: InputMode = InputMode(
@@ -108,28 +98,24 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
         didSet {
             guard oldValue != isMouseCaptured else { return }
             pendingDX = 0; pendingDY = 0
-            downButtons.removeAll()
             resetStick()
             overlay.reset(notify: false)
-            if isMouseCaptured { captureStart = CACurrentMediaTime() }
             setNeedsUpdateOfPrefersPointerLocked()
             updateCursorVisibility()
             applyPadState()
         }
     }
 
-    /// Chế độ thử cảm ứng ngoài game: overlay nhận cả màn hình để thử vuốt (không lưu)
-    var padTestMode = false {
-        didSet { applyPadState() }
-    }
-
     /// Bộ điều khiển ảo đang bật và dùng tay cầm: nút/joystick/vuốt/gyro chạy NGAY, không cần đợi game khóa chuột
     private var padLive: Bool {
-        PadStore.shared.settings.enabled && inputMode.usesPad && !padEditing
+        PadStore.shared.settings.enabled && inputMode.usesPad && !padEditing && !overlay.hudHidden
     }
 
     /// Có được gửi input vào trang không: đã khóa chuột (game đang bắt chuột) HOẶC tay cầm ảo đang hoạt động
     private var inputLive: Bool { isMouseCaptured || padLive }
+
+    /// Bàn phím ảo iOS: UITextField ẩn làm firstResponder, mọi ký tự gõ được chuyển vào trang
+    let keyField = KeyCatcherField()
 
     /// Đang ở chế độ chỉnh sửa bố cục nút
     var padEditing = false {
@@ -206,12 +192,13 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
         overlay.onJoystick = { [weak self] x, y in self?.sendLeft(x, y) }
         overlay.onEditButton = { [weak self] id, source in self?.presentButtonEditor(id, from: source) }
         overlay.onEditJoystick = { [weak self] source in self?.presentJoystickEditor(from: source) }
+        overlay.onLongPressEmpty = { [weak self] point in self?.presentAddButtonAt(point) }
         overlay.reload()
+        setupKeyField()
 
         setupGearButton()
         view.addSubview(cursorView)     // luôn nằm trên cùng
         setupPointer()
-        setupMouse()
 
         // Gửi chuyển động chuột/gyro/vuốt vào trang theo nhịp màn hình (tối đa 120Hz)
         let link = CADisplayLink(target: self, selector: #selector(flushMouse(_:)))
@@ -255,7 +242,6 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
         }
         overlay.isHidden = !show
         overlay.isUserInteractionEnabled = show
-        overlay.feedback = !isMouseCaptured || padTestMode
         overlay.alpha = padEditing ? 1 : s.opacity
         updateGyro()
         refreshMenu()
@@ -284,7 +270,7 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
         pendingDY += dy * k
     }
 
-    private func perform(_ action: PadAction, down: Bool) {
+    func perform(_ action: PadAction, down: Bool) {
         switch action {
         case .mouse(let button):
             sendButton(button, down)
@@ -292,6 +278,22 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
             sendKey(spec, down)
         case .releaseLock:
             if down { webView.evaluateJavaScript("document.exitPointerLock&&document.exitPointerLock()") }
+        case .pad(let index):
+            sendPad(index, down)
+        case .toggleKeyboard:
+            if down { toggleKeyboard() }
+        case .toggleHUD:
+            // Hoãn sang vòng lặp kế: toggle làm overlay reset() trong lúc đang xử lý chạm
+            if down {
+                DispatchQueue.main.async { [weak self] in
+                    guard let self else { return }
+                    self.overlay.hudHidden.toggle()
+                    self.sendLeft(0, 0)
+                    self.pendingDX = 0; self.pendingDY = 0
+                    self.resetStick()
+                    self.applyPadState()
+                }
+            }
         }
     }
 
@@ -370,60 +372,6 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
         if show { cursorView.place(at: cursorPos) }
     }
 
-    // MARK: - Chuột native (GameController) – dùng khi đang trong game
-
-    private func setupMouse() {
-        NotificationCenter.default.addObserver(
-            forName: .GCMouseDidConnect, object: nil, queue: .main
-        ) { [weak self] note in
-            if let mouse = note.object as? GCMouse { self?.bind(mouse) }
-        }
-        GCMouse.mice().forEach { bind($0) }
-    }
-
-    private func bind(_ mouse: GCMouse) {
-        guard let input = mouse.mouseInput else { return }
-
-        input.mouseMovedHandler = { [weak self] _, dx, dy in
-            guard let self, self.isMouseCaptured else { return }
-            self.pendingDX += CGFloat(dx) * self.mouseSensitivity
-            // GCMouse: trục Y dương là hướng LÊN, còn web thì dương là xuống
-            self.pendingDY += CGFloat(dy) * self.mouseSensitivity * (self.negateY ? -1 : 1)
-        }
-        input.leftButton.pressedChangedHandler = { [weak self] _, _, pressed in
-            self?.mouseButton(0, pressed)
-        }
-        input.rightButton?.pressedChangedHandler = { [weak self] _, _, pressed in
-            self?.mouseButton(2, pressed)
-        }
-        input.middleButton?.pressedChangedHandler = { [weak self] _, _, pressed in
-            self?.mouseButton(1, pressed)
-        }
-        if let aux = input.auxiliaryButtons {
-            for (i, button) in aux.enumerated() {
-                button.pressedChangedHandler = { [weak self] _, _, pressed in
-                    self?.mouseButton(3 + i, pressed)
-                }
-            }
-        }
-    }
-
-    /// Bấm chuột trong game. Chống "tự bấm chuột phải" ngay lúc vừa vào session.
-    private func mouseButton(_ button: Int, _ pressed: Bool) {
-        guard isMouseCaptured else { return }
-        if pressed {
-            if button != 0, CACurrentMediaTime() - captureStart < 0.4 { return }
-            guard !downButtons.contains(button) else { return }
-            downButtons.insert(button)
-            sendButton(button, true)
-        } else {
-            // Chỉ nhả nút nếu trước đó đã thật sự nhấn nút này trong game
-            guard downButtons.contains(button) else { return }
-            downButtons.remove(button)
-            sendButton(button, false)
-        }
-    }
-
     // MARK: - Gửi input vào trang (theo nhịp màn hình)
 
     @objc private func flushMouse(_ link: CADisplayLink) {
@@ -437,7 +385,7 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
         let mode = inputMode
 
         var calls: [String] = []
-        // Kênh chuột tổng hợp: gửi độ dời thô theo từng khung hình
+        // Kênh chuột tổng hợp: gửi độ dời thô (vuốt / gyro) theo từng khung hình
         if mode.usesKBM, dx != 0 || dy != 0 {
             calls.append(String(format: "m.move(%.2f,%.2f)", dx, dy))
         }
@@ -478,8 +426,9 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
 
     /// Joystick đi (analog) -> cần gạt trái (axes[0], axes[1]). x, y trong [-1, 1], y dương = xuống.
     private func sendLeft(_ x: CGFloat, _ y: CGFloat) {
-        guard inputLive, inputMode.usesPad else { return }
+        guard inputMode.usesPad else { return }
         var lx = x, ly = y
+        if !inputLive { lx = 0; ly = 0 }
         let mag = hypot(lx, ly)
         if mag < 0.05 {
             lx = 0; ly = 0
@@ -495,17 +444,59 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
         )
     }
 
+    // Lệnh NHẢ luôn được gửi (không chặn bởi inputLive) để không bao giờ kẹt nút khi tắt / ẩn HUD
     private func sendButton(_ button: Int, _ pressed: Bool) {
-        guard inputLive else { return }
+        guard inputLive || !pressed else { return }
         webView.evaluateJavaScript(
             "window.__gfnMouse&&window.__gfnMouse.button(\(button),\(pressed ? "true" : "false"))"
         )
     }
 
+    private func sendPad(_ index: Int, _ down: Bool) {
+        guard inputLive || !down else { return }
+        webView.evaluateJavaScript(
+            "window.__gfnMouse&&window.__gfnMouse.pad(\(index),\(down ? "true" : "false"))"
+        )
+    }
+
     private func sendKey(_ spec: KeySpec, _ down: Bool) {
-        guard inputLive else { return }
+        guard inputLive || !down else { return }
         let js = "window.__gfnMouse&&window.__gfnMouse.key(\"\(spec.key)\",\"\(spec.code)\",\(spec.keyCode),\(down ? "true" : "false"))"
         webView.evaluateJavaScript(js)
+    }
+
+    // MARK: - Bàn phím ảo iOS -> trang web
+
+    private func setupKeyField() {
+        keyField.frame = CGRect(x: -100, y: -100, width: 10, height: 10)
+        keyField.alpha = 0.01
+        keyField.autocorrectionType = .no
+        keyField.autocapitalizationType = .none
+        keyField.spellCheckingType = .no
+        keyField.smartQuotesType = .no
+        keyField.smartDashesType = .no
+        keyField.smartInsertDeleteType = .no
+        keyField.returnKeyType = .send
+        keyField.text = ""
+        keyField.onText = { [weak self] text in self?.sendTyped(text) }
+        keyField.onBackspace = { [weak self] in self?.callTyping("backspace()") }
+        keyField.onReturn = { [weak self] in self?.callTyping("enter()") }
+        view.addSubview(keyField)
+    }
+
+    func toggleKeyboard() {
+        if keyField.isFirstResponder { keyField.resignFirstResponder() } else { keyField.becomeFirstResponder() }
+    }
+
+    private func sendTyped(_ text: String) {
+        guard !text.isEmpty,
+              let data = try? JSONSerialization.data(withJSONObject: [text], options: []),
+              let arr = String(data: data, encoding: .utf8) else { return }
+        callTyping("type(\(arr)[0])")
+    }
+
+    private func callTyping(_ call: String) {
+        webView.evaluateJavaScript("window.__gfnMouse&&window.__gfnMouse.\(call)")
     }
 
     // MARK: - WKScriptMessageHandler
@@ -699,10 +690,11 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
         t.dispatchEvent(ev);
       }
 
-      function setMod(code, down) {
-        if (code === 'ShiftLeft') mods.shift = down;
-        else if (code === 'ControlLeft') mods.ctrl = down;
-        else if (code === 'AltLeft') mods.alt = down;
+      // Tính lại phím bổ trợ từ các phím đang giữ (hỗ trợ cả trái và phải)
+      function setMod() {
+        mods.shift = !!(downKeys.ShiftLeft || downKeys.ShiftRight);
+        mods.ctrl = !!(downKeys.ControlLeft || downKeys.ControlRight);
+        mods.alt = !!(downKeys.AltLeft || downKeys.AltRight);
       }
 
       function fireKey(type, key, code, keyCode) {
@@ -738,8 +730,9 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
         if (mode.kbm) releaseKbmHeld();
         Object.keys(downKeys).forEach(function (code) {
           delete downKeys[code];
-          setMod(code, false);
         });
+        setMod();
+        padHeld = {};
         pressedButtons = {};
         buttonsMask = 0;
         leftAnalog.x = 0; leftAnalog.y = 0;
@@ -757,14 +750,14 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
       // W/A/S/D không nằm ở đây: chúng điều khiển cần gạt trái (axes[0], axes[1]).
       var KEY_BTN = {
         Space: 0,
-        ControlLeft: 1, KeyC: 1,
+        ControlLeft: 1, ControlRight: 1, KeyC: 1,
         KeyR: 2, KeyE: 2, KeyF: 2,
         KeyQ: 3, KeyX: 3, Digit1: 3, Digit2: 3, Digit3: 3, Digit4: 3, Digit5: 3,
-        AltLeft: 4, KeyZ: 4,
+        AltLeft: 4, AltRight: 4, KeyZ: 4,
         KeyG: 5,
         Tab: 8,
         Escape: 9, Enter: 9,
-        ShiftLeft: 10,
+        ShiftLeft: 10, ShiftRight: 10,
         KeyV: 11,
         ArrowUp: 12, ArrowDown: 13, ArrowLeft: 14, ArrowRight: 15
       };
@@ -772,6 +765,7 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
       var MOUSE_BTN = { 0: 7, 2: 6, 1: 11, 3: 4, 4: 5 };   // trái = RT (bắn), phải = LT (ngắm)
 
       var padOn = false;          // tay cầm ảo đang "cắm"
+      var padHeld = {};           // nút tay cầm gán trực tiếp từ HUD (LB, RB, A, B, D-Pad...)
       var padIndex = 0;
       var padTs = 0;
       var padBtn = [];
@@ -810,6 +804,8 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
           i = MOUSE_BTN[mb[k]];
           if (i !== undefined) b[i] = 1;
         }
+        var ph = Object.keys(padHeld);
+        for (k = 0; k < ph.length; k++) b[ph[k]] = 1;
         var lx, ly;
         if (leftAnalog.x !== 0 || leftAnalog.y !== 0) {      // analog thắng phím số
           lx = leftAnalog.x; ly = leftAnalog.y;
@@ -944,6 +940,41 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
         }
       }
 
+      // ===== Gõ chữ từ bàn phím ảo iOS =====
+      function isEditable(el) {
+        return !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable);
+      }
+
+      // Trả về true nếu trang đã chặn mặc định (preventDefault) ở keydown
+      function typeKey(key, code, keyCode, withPress) {
+        var t = document.activeElement || document.body;
+        var res = false;
+        ['keydown'].concat(withPress ? ['keypress'] : []).concat(['keyup']).forEach(function (type) {
+          var ev = new KeyboardEvent(type, {
+            key: key, code: code, bubbles: true, cancelable: true, composed: true, view: window
+          });
+          try {
+            Object.defineProperty(ev, 'keyCode', { value: keyCode });
+            Object.defineProperty(ev, 'which', { value: keyCode });
+          } catch (e) {}
+          t.dispatchEvent(ev);
+          if (type === 'keydown' && ev.defaultPrevented) res = true;
+        });
+        return res;
+      }
+
+      function typeChar(ch) {
+        var el = document.activeElement;
+        if (isEditable(el)) {
+          var ok = false;
+          try { ok = document.execCommand('insertText', false, ch); } catch (e) {}
+          if (ok) return;
+        }
+        var up = ch.toUpperCase();
+        var code = /[a-z]/i.test(ch) ? 'Key' + up : (/[0-9]/.test(ch) ? 'Digit' + ch : (ch === ' ' ? 'Space' : ''));
+        typeKey(ch, code, up.charCodeAt(0), true);
+      }
+
       // Đếm số gói gửi qua RTCDataChannel (chỉ đếm để chẩn đoán, không đổi dữ liệu)
       var dcCount = {};
       try {
@@ -991,12 +1022,41 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
             if (!downKeys[code]) return;
             delete downKeys[code];
           }
-          setMod(code, down);
+          setMod();
           if (mode.kbm && lockEl) {
             ensureFocus();
             fireKey(down ? 'keydown' : 'keyup', key, code, keyCode);
           }
           if (padOn) recomputePad();
+        },
+        // Nút tay cầm ảo gán trực tiếp (chỉ số theo mapping standard)
+        pad: function (i, down) {
+          if (!padOn) { if (down) return; }
+          if (down) padHeld[i] = true; else delete padHeld[i];
+          if (padOn) recomputePad();
+        },
+        // Gõ chữ từ bàn phím ảo iOS: ưu tiên chèn thẳng vào ô nhập liệu đang focus
+        type: function (text) {
+          for (var i = 0; i < text.length; i++) typeChar(text.charAt(i));
+        },
+        backspace: function () {
+          var el = document.activeElement;
+          if (isEditable(el)) {
+            var ok = false;
+            try { ok = document.execCommand('delete'); } catch (e) {}
+            if (ok) return;
+          }
+          typeKey('Backspace', 'Backspace', 8);
+        },
+        enter: function () {
+          var el = document.activeElement;
+          var prevented = typeKey('Enter', 'Enter', 13, true);
+          if (prevented || !isEditable(el)) return;
+          if (el.tagName === 'TEXTAREA' || el.isContentEditable) {
+            try { document.execCommand('insertLineBreak'); } catch (e) {}
+          } else if (el.form && el.form.requestSubmit) {
+            try { el.form.requestSubmit(); } catch (e) {}
+          }
         },
         // Cần gạt phải (vuốt / gyro / chuột): x, y trong [-1, 1], y dương = nhìn xuống
         stick: function (x, y) {

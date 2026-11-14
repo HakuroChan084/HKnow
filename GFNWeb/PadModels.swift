@@ -11,10 +11,19 @@ struct KeySpec: Codable, Equatable {
     var display: String {
         switch code {
         case "Space": return "Space"
-        case "ShiftLeft": return "Shift"
-        case "ControlLeft": return "Ctrl"
-        case "AltLeft": return "Alt"
+        case "ShiftLeft": return "L-Shift"
+        case "ShiftRight": return "R-Shift"
+        case "ControlLeft": return "L-Ctrl"
+        case "ControlRight": return "R-Ctrl"
+        case "AltLeft": return "L-Alt"
+        case "AltRight": return "R-Alt"
         case "Escape": return "Esc"
+        case "Backspace": return "Bksp"
+        case "CapsLock": return "Caps"
+        case "ArrowUp": return "↑"
+        case "ArrowDown": return "↓"
+        case "ArrowLeft": return "←"
+        case "ArrowRight": return "→"
         default: return key.uppercased()
         }
     }
@@ -25,88 +34,183 @@ struct KeySpec: Codable, Equatable {
     static let d = KeySpec(key: "d", code: "KeyD", keyCode: 68)
     static let space = KeySpec(key: " ", code: "Space", keyCode: 32)
     static let shift = KeySpec(key: "Shift", code: "ShiftLeft", keyCode: 16)
+    static let shiftR = KeySpec(key: "Shift", code: "ShiftRight", keyCode: 16)
     static let ctrl = KeySpec(key: "Control", code: "ControlLeft", keyCode: 17)
+    static let ctrlR = KeySpec(key: "Control", code: "ControlRight", keyCode: 17)
     static let alt = KeySpec(key: "Alt", code: "AltLeft", keyCode: 18)
+    static let altR = KeySpec(key: "Alt", code: "AltRight", keyCode: 18)
     static let tab = KeySpec(key: "Tab", code: "Tab", keyCode: 9)
     static let enter = KeySpec(key: "Enter", code: "Enter", keyCode: 13)
     static let esc = KeySpec(key: "Escape", code: "Escape", keyCode: 27)
+    static let backspace = KeySpec(key: "Backspace", code: "Backspace", keyCode: 8)
+    static let capsLock = KeySpec(key: "CapsLock", code: "CapsLock", keyCode: 20)
+    static let up = KeySpec(key: "ArrowUp", code: "ArrowUp", keyCode: 38)
+    static let down = KeySpec(key: "ArrowDown", code: "ArrowDown", keyCode: 40)
+    static let left = KeySpec(key: "ArrowLeft", code: "ArrowLeft", keyCode: 37)
+    static let right = KeySpec(key: "ArrowRight", code: "ArrowRight", keyCode: 39)
 
-    /// Đọc phím từ chữ người dùng gõ: "r", "5", "F5", "space", "shift", "ctrl", "tab", "esc", "up"...
+    // MARK: Các nhóm phím (dùng cho bảng chọn)
+
+    /// Phím bổ trợ, phân biệt Trái / Phải
+    static let modifiers: [KeySpec] = [.shift, .shiftR, .ctrl, .ctrlR, .alt, .altR]
+
+    /// Phím điều khiển
+    static let controls: [KeySpec] = [.enter, .esc, .space, .tab, .backspace, .capsLock]
+
+    /// F1 – F12
+    static let functionKeys: [KeySpec] = (1...12).map { KeySpec(key: "F\($0)", code: "F\($0)", keyCode: 111 + $0) }
+
+    /// Phím mũi tên
+    static let arrows: [KeySpec] = [.up, .down, .left, .right]
+
+    /// A – Z
+    static let letters: [KeySpec] = (65...90).map { v in
+        let c = String(Character(Unicode.Scalar(UInt8(v))))
+        return KeySpec(key: c.lowercased(), code: "Key" + c, keyCode: v)
+    }
+
+    /// 0 – 9
+    static let digits: [KeySpec] = (0...9).map { KeySpec(key: "\($0)", code: "Digit\($0)", keyCode: 48 + $0) }
+
+    /// Dấu câu thường dùng
+    static let punctuation: [KeySpec] = [
+        KeySpec(key: "-", code: "Minus", keyCode: 189),
+        KeySpec(key: "=", code: "Equal", keyCode: 187),
+        KeySpec(key: "[", code: "BracketLeft", keyCode: 219),
+        KeySpec(key: "]", code: "BracketRight", keyCode: 221),
+        KeySpec(key: ";", code: "Semicolon", keyCode: 186),
+        KeySpec(key: "'", code: "Quote", keyCode: 222),
+        KeySpec(key: ",", code: "Comma", keyCode: 188),
+        KeySpec(key: ".", code: "Period", keyCode: 190),
+        KeySpec(key: "/", code: "Slash", keyCode: 191),
+        KeySpec(key: "`", code: "Backquote", keyCode: 192),
+        KeySpec(key: "\\", code: "Backslash", keyCode: 220),
+    ]
+
+    /// Toàn bộ phím đã biết
+    static let all: [KeySpec] = modifiers + controls + functionKeys + arrows + letters + digits + punctuation
+
+    /// Đọc phím từ chữ người dùng gõ: "r", "5", "F5", "space", "shift", "ctrl", "tab", "esc", "up", "bksp", "-"...
     static func parse(_ raw: String) -> KeySpec? {
         let u = raw.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
         guard !u.isEmpty else { return nil }
         switch u {
         case "SPACE": return .space
         case "ENTER", "RETURN": return .enter
-        case "TAB": return .tab
-        case "SHIFT": return .shift
-        case "CTRL", "CONTROL": return .ctrl
-        case "ALT": return .alt
         case "ESC", "ESCAPE": return .esc
-        case "UP": return KeySpec(key: "ArrowUp", code: "ArrowUp", keyCode: 38)
-        case "DOWN": return KeySpec(key: "ArrowDown", code: "ArrowDown", keyCode: 40)
-        case "LEFT": return KeySpec(key: "ArrowLeft", code: "ArrowLeft", keyCode: 37)
-        case "RIGHT": return KeySpec(key: "ArrowRight", code: "ArrowRight", keyCode: 39)
+        case "UP": return .up
+        case "DOWN": return .down
+        case "LEFT": return .left
+        case "RIGHT": return .right
+        case "BACKSPACE", "BKSP": return .backspace
+        case "CAPS", "CAPSLOCK": return .capsLock
         default: break
         }
-        if u.count == 1, let scalar = u.unicodeScalars.first {
-            if scalar.value >= 65 && scalar.value <= 90 {
-                return KeySpec(key: u.lowercased(), code: "Key" + u, keyCode: Int(scalar.value))
-            }
-            if scalar.value >= 48 && scalar.value <= 57 {
-                return KeySpec(key: u, code: "Digit" + u, keyCode: Int(scalar.value))
-            }
+        return all.first {
+            $0.code.uppercased() == u || $0.key.uppercased() == u || $0.display.uppercased() == u
         }
-        if u.hasPrefix("F"), let n = Int(u.dropFirst()), n >= 1, n <= 12 {
-            return KeySpec(key: "F\(n)", code: "F\(n)", keyCode: 111 + n)
-        }
-        return nil
     }
+}
+
+// MARK: - Nút tay cầm Xbox (chỉ số theo mapping "standard")
+
+enum GamepadButton {
+    /// (tên đầy đủ, nhãn ngắn) theo chỉ số nút
+    static let names: [Int: (String, String)] = [
+        0: ("A", "A"), 1: ("B", "B"), 2: ("X", "X"), 3: ("Y", "Y"),
+        4: ("LB", "LB"), 5: ("RB", "RB"), 6: ("LT", "LT"), 7: ("RT", "RT"),
+        8: ("Back", "Back"), 9: ("Start", "Start"), 10: ("L3 (nhấn cần trái)", "L3"), 11: ("R3 (nhấn cần phải)", "R3"),
+        12: ("D-Pad Lên", "D↑"), 13: ("D-Pad Xuống", "D↓"), 14: ("D-Pad Trái", "D←"), 15: ("D-Pad Phải", "D→"),
+    ]
+    static let lt = 6
 }
 
 // MARK: - Hành động của một nút
 
 enum PadAction: Codable, Equatable {
-    case mouse(Int)          // 0 = trái, 1 = giữa, 2 = phải
+    case mouse(Int)          // 0 = trái (RT), 1 = giữa (R3), 2 = phải (LT)
     case key(KeySpec)
     case releaseLock         // thả chuột để chạm vào menu của GFN
+    case pad(Int)            // nút tay cầm Xbox ảo (LB, RB, A, B, X, Y, L3, Start, Back, D-Pad...)
+    case toggleKeyboard      // bật / tắt bàn phím ảo của iOS
+    case toggleHUD           // ẩn / hiện bộ nút (khi ẩn: chạm tự do vào menu game)
 
     var title: String {
         switch self {
-        case .mouse(let b): return b == 0 ? "Chuột trái" : (b == 2 ? "Chuột phải" : "Chuột giữa")
+        case .mouse(let b): return b == 0 ? "Bắn (RT / Chuột trái)" : (b == 2 ? "Ngắm (LT / Chuột phải)" : "R3 (Chuột giữa)")
         case .key(let k): return "Phím " + k.display
         case .releaseLock: return "Thả chuột (mở menu)"
+        case .pad(let i): return "Tay cầm: " + (GamepadButton.names[i]?.0 ?? "Nút \(i)")
+        case .toggleKeyboard: return "Bật/Tắt bàn phím ảo"
+        case .toggleHUD: return "Ẩn/Hiện HUD"
         }
     }
 
     var defaultLabel: String {
         switch self {
-        case .mouse(let b): return b == 0 ? "Bắn" : (b == 2 ? "Ngắm" : "Giữa")
+        case .mouse(let b): return b == 0 ? "Bắn" : (b == 2 ? "Ngắm" : "R3")
         case .key(let k): return k.display
         case .releaseLock: return "Menu"
+        case .pad(let i): return GamepadButton.names[i]?.1 ?? "\(i)"
+        case .toggleKeyboard: return "⌨︎"
+        case .toggleHUD: return "HUD"
         }
     }
 
-    /// Danh sách hành động có sẵn khi thêm / đổi nút
-    static var presets: [(String, PadAction)] {
-        var list: [(String, PadAction)] = [
-            ("Chuột trái (bắn)", .mouse(0)),
-            ("Chuột phải (ngắm)", .mouse(2)),
-            ("Chuột giữa", .mouse(1)),
-            ("Space (nhảy)", .key(.space)),
-            ("Shift (chạy)", .key(.shift)),
-            ("Ctrl (ngồi)", .key(.ctrl)),
+    /// Đang giữ nút này nghĩa là đang ngắm (LT / chuột phải) -> dùng cho gyro "chỉ khi ngắm"
+    var isAim: Bool {
+        switch self {
+        case .mouse(let b): return b == 2
+        case .pad(let i): return i == GamepadButton.lt
+        default: return false
+        }
+    }
+}
+
+// MARK: - Danh mục hành động (bảng chọn phân nhóm)
+
+struct ActionItem {
+    let label: String       // chữ lớn trên ô
+    let detail: String?     // chữ nhỏ bên dưới
+    let action: PadAction
+}
+
+struct ActionGroup {
+    let title: String
+    let items: [ActionItem]
+}
+
+extension PadAction {
+    static var catalog: [ActionGroup] {
+        func keyItem(_ k: KeySpec, _ detail: String? = nil) -> ActionItem {
+            ActionItem(label: k.display, detail: detail, action: .key(k))
+        }
+        func padItem(_ i: Int, _ label: String, _ detail: String? = nil) -> ActionItem {
+            ActionItem(label: label, detail: detail, action: .pad(i))
+        }
+
+        return [
+            ActionGroup(title: "Tay cầm / Bắn", items: [
+                ActionItem(label: "Bắn", detail: "RT / Chuột trái", action: .mouse(0)),
+                ActionItem(label: "Ngắm", detail: "LT / Chuột phải", action: .mouse(2)),
+                ActionItem(label: "R3", detail: "Chuột giữa", action: .mouse(1)),
+                padItem(4, "LB"), padItem(5, "RB"),
+                padItem(0, "A"), padItem(1, "B"), padItem(2, "X"), padItem(3, "Y"),
+                padItem(10, "L3"), padItem(9, "Start"), padItem(8, "Back"),
+                padItem(12, "D-Pad ↑"), padItem(13, "D-Pad ↓"), padItem(14, "D-Pad ←"), padItem(15, "D-Pad →"),
+            ]),
+            ActionGroup(title: "Phím bổ trợ (Trái / Phải)", items: KeySpec.modifiers.map { keyItem($0) }),
+            ActionGroup(title: "Phím điều khiển", items: KeySpec.controls.map { keyItem($0) }),
+            ActionGroup(title: "Phím chức năng", items: KeySpec.functionKeys.map { keyItem($0) }),
+            ActionGroup(title: "Phím mũi tên", items: KeySpec.arrows.map { keyItem($0) }),
+            ActionGroup(title: "Chữ cái A – Z", items: KeySpec.letters.map { keyItem($0) }),
+            ActionGroup(title: "Số & dấu câu", items: (KeySpec.digits + KeySpec.punctuation).map { keyItem($0) }),
+            ActionGroup(title: "Hệ thống", items: [
+                ActionItem(label: "Bàn phím ảo", detail: "Bật / tắt", action: .toggleKeyboard),
+                ActionItem(label: "Ẩn/Hiện HUD", detail: "Chạm menu game", action: .toggleHUD),
+                ActionItem(label: "Thả chuột", detail: "Mở menu GFN", action: .releaseLock),
+            ]),
         ]
-        for ch in ["R", "E", "F", "Q", "C", "V", "G", "X", "Z"] {
-            if let k = KeySpec.parse(ch) { list.append(("Phím \(ch)", .key(k))) }
-        }
-        list.append(("Tab", .key(.tab)))
-        list.append(("Alt", .key(.alt)))
-        for n in 1...5 {
-            if let k = KeySpec.parse("\(n)") { list.append(("Phím \(n)", .key(k))) }
-        }
-        list.append(("Thả chuột (mở menu GFN)", .releaseLock))
-        return list
     }
 }
 

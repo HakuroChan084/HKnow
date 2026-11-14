@@ -95,20 +95,25 @@ final class ControllerOverlayView: UIView {
     var onJoystick: ((CGFloat, CGFloat) -> Void)?
     var onEditButton: ((UUID, UIView) -> Void)?
     var onEditJoystick: ((UIView) -> Void)?
+    /// Nhấn giữ vào chỗ trống trong chế độ chỉnh sửa: điểm nhấn (toạ độ trong overlay)
+    var onLongPressEmpty: ((CGPoint) -> Void)?
 
-    /// Đang giữ nút chuột phải (dùng cho gyro "chỉ khi ngắm")
+    /// Đang giữ nút Ngắm (LT / chuột phải) -> dùng cho gyro "chỉ khi ngắm"
     private(set) var aimHeld = false
 
-    /// true = hiện phản hồi trực quan (chấm theo ngón tay, chữ báo thao tác) để thử cảm ứng ngoài game
-    var feedback = false {
+    /// true = HUD đang ẩn: chỉ còn các nút "Ẩn/Hiện HUD" nhận chạm, mọi chạm khác đi xuyên xuống trang web
+    var hudHidden = false {
         didSet {
-            if !feedback { lookDot.isHidden = true; flashLabel.isHidden = true }
+            guard oldValue != hudHidden else { return }
+            reset(notify: true)
+            applyHudVisibility()
         }
     }
 
     var editing = false {
         didSet {
             guard oldValue != editing else { return }
+            if editing { hudHidden = false }
             reset(notify: true)
             buttonViews.values.forEach { $0.editingStyle = editing }
             joystick.editingStyle = editing
@@ -127,9 +132,14 @@ final class ControllerOverlayView: UIView {
     private var buttonViews: [UUID: PadButtonView] = [:]
     private let joystick = JoystickView()
     private let hint = UILabel()
-    private let lookDot = UIView()
-    private let flashLabel = UILabel()
-    private var lookTotal = CGPoint.zero
+    private lazy var longPress: UILongPressGestureRecognizer = {
+        let g = UILongPressGestureRecognizer(target: self, action: #selector(handleLongPress(_:)))
+        g.minimumPressDuration = 0.5
+        g.allowableMovement = 12
+        g.cancelsTouchesInView = false
+        g.delegate = self
+        return g
+    }()
 
     private var roles: [UITouch: Role] = [:]
     private var startPoints: [UITouch: CGPoint] = [:]
@@ -146,7 +156,7 @@ final class ControllerOverlayView: UIView {
         isMultipleTouchEnabled = true
         addSubview(joystick)
 
-        hint.text = "Chế độ chỉnh sửa: kéo để di chuyển • chạm vào nút để sửa / xóa"
+        hint.text = "Chỉnh sửa: kéo để di chuyển • chạm nút để sửa • nhấn giữ chỗ trống để thêm nút"
         hint.textColor = .systemYellow
         hint.font = .boldSystemFont(ofSize: 14)
         hint.textAlignment = .center
@@ -154,51 +164,29 @@ final class ControllerOverlayView: UIView {
         hint.isUserInteractionEnabled = false
         addSubview(hint)
 
-        lookDot.bounds = CGRect(x: 0, y: 0, width: 36, height: 36)
-        lookDot.layer.cornerRadius = 18
-        lookDot.backgroundColor = UIColor.systemGreen.withAlphaComponent(0.45)
-        lookDot.layer.borderWidth = 2
-        lookDot.layer.borderColor = UIColor.white.withAlphaComponent(0.8).cgColor
-        lookDot.isUserInteractionEnabled = false
-        lookDot.isHidden = true
-        addSubview(lookDot)
-
-        flashLabel.textColor = .white
-        flashLabel.font = .boldSystemFont(ofSize: 15)
-        flashLabel.textAlignment = .center
-        flashLabel.backgroundColor = UIColor.black.withAlphaComponent(0.55)
-        flashLabel.layer.cornerRadius = 8
-        flashLabel.clipsToBounds = true
-        flashLabel.isUserInteractionEnabled = false
-        flashLabel.isHidden = true
-        addSubview(flashLabel)
+        addGestureRecognizer(longPress)
     }
 
     // MARK: Nhận cảm ứng
 
     /// Chưa bật bộ điều khiển (overlay ẩn): trả nil => MỌI cú chạm đi thẳng xuống WKWebView.
-    /// Đã bật: overlay nuốt toàn bộ cảm ứng NGÓN TAY => không có chạm/tap/giữ nào lọt xuống trang web
-    /// => không thể "cướp cò" bắn nhầm. Chuột/trackpad thật vẫn đi xuyên xuống để bấm menu;
-    /// trong game thì JS đã chặn sự kiện chuột thật (isTrusted) khi đang khóa chuột.
+    /// Đã bật: overlay nuốt toàn bộ cảm ứng => không có chạm / tap / giữ nào lọt xuống trang web
+    /// => không thể "cướp cò" bắn nhầm. Nút và joystick chỉ nhận trong hình tròn của chúng,
+    /// vùng trống còn lại chỉ dùng để vuốt xoay camera.
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
         guard !isHidden, alpha > 0.01, isUserInteractionEnabled else { return nil }
-        if !editing, let t = event?.allTouches?.first, t.type == .indirectPointer { return nil }
+        // HUD đang ẩn: chỉ nút "Ẩn/Hiện HUD" còn nhận chạm, phần còn lại đi thẳng xuống trang web
+        if hudHidden, !editing { return buttonID(at: point) != nil ? self : nil }
         return super.hitTest(point, with: event)
     }
 
-    // MARK: Phản hồi trực quan
+    // MARK: Nhấn giữ để thêm nút (chế độ chỉnh sửa)
 
-    private func flash(_ text: String) {
-        guard feedback else { return }
-        flashLabel.text = "  \(text)  "
-        flashLabel.sizeToFit()
-        flashLabel.isHidden = false
-        setNeedsLayout()
-        NSObject.cancelPreviousPerformRequests(withTarget: self, selector: #selector(hideFlash), object: nil)
-        perform(#selector(hideFlash), with: nil, afterDelay: 0.9)
+    @objc private func handleLongPress(_ g: UILongPressGestureRecognizer) {
+        guard g.state == .began, editing else { return }
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        onLongPressEmpty?(g.location(in: self))
     }
-
-    @objc private func hideFlash() { flashLabel.isHidden = true }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
@@ -221,8 +209,17 @@ final class ControllerOverlayView: UIView {
                 buttonViews[b.id] = view
             }
         }
+        applyHudVisibility()
         bringSubviewToFront(hint)
         setNeedsLayout()
+    }
+
+    /// Khi HUD ẩn: chỉ giữ lại các nút "Ẩn/Hiện HUD", ẩn joystick và mọi nút khác
+    private func applyHudVisibility() {
+        for b in PadStore.shared.settings.buttons {
+            buttonViews[b.id]?.isHidden = hudHidden && b.action != .toggleHUD
+        }
+        joystick.isHidden = hudHidden
     }
 
     override func layoutSubviews() {
@@ -236,8 +233,6 @@ final class ControllerOverlayView: UIView {
         joystick.bounds = CGRect(x: 0, y: 0, width: s.joySize, height: s.joySize)
         joystick.center = CGPoint(x: s.joyX * bounds.width, y: s.joyY * bounds.height)
         hint.frame = CGRect(x: 0, y: safeAreaInsets.top + 12, width: bounds.width, height: 24)
-        let fw = max(flashLabel.bounds.width, 10)
-        flashLabel.frame = CGRect(x: (bounds.width - fw) / 2, y: safeAreaInsets.top + 44, width: fw, height: 28)
     }
 
     // MARK: Reset
@@ -259,8 +254,6 @@ final class ControllerOverlayView: UIView {
         buttonViews.values.forEach { $0.setPressed(false) }
         joystick.setOffset(.zero)
         if notify { onJoystick?(0, 0) }
-        lookDot.isHidden = true
-        lookTotal = .zero
     }
 
     // MARK: Tìm phần tử dưới ngón tay
@@ -271,20 +264,20 @@ final class ControllerOverlayView: UIView {
 
     private func buttonID(at p: CGPoint) -> UUID? {
         for b in PadStore.shared.settings.buttons.reversed() {
-            guard let view = buttonViews[b.id] else { continue }
+            guard let view = buttonViews[b.id], !view.isHidden else { continue }
             if hypot(p.x - view.center.x, p.y - view.center.y) <= b.size / 2 { return b.id }
         }
         return nil
     }
 
     private func joystickHit(_ p: CGPoint) -> Bool {
-        hypot(p.x - joystick.center.x, p.y - joystick.center.y) <= joystick.radius
+        !joystick.isHidden && hypot(p.x - joystick.center.x, p.y - joystick.center.y) <= joystick.radius
     }
 
     private func recomputeAim() {
         var held = false
         for (_, role) in roles {
-            if case .button(let id) = role, let m = model(id), case .mouse(2) = m.action { held = true }
+            if case .button(let id) = role, let m = model(id), m.action.isAim { held = true }
         }
         aimHeld = held
     }
@@ -317,10 +310,6 @@ final class ControllerOverlayView: UIView {
         for code in heldJoyCodes.subtracting(want) {
             if let spec = joyKeys[code] { onAction?(.key(spec), false) }
         }
-        if want != heldJoyCodes {
-            let names = want.map { String($0.dropFirst(3)) }.sorted().joined(separator: " ")
-            flash(want.isEmpty ? "Đi: dừng" : "Đi: \(names)")
-        }
         heldJoyCodes = want
     }
 
@@ -328,7 +317,7 @@ final class ControllerOverlayView: UIView {
 
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
         for t in touches {
-            // Chuột / trackpad: đã bị nuốt ở hitTest, không được điều khiển nút hay xoay camera
+            // Chuột / trackpad không điều khiển nút hay xoay camera
             if !editing, t.type == .indirectPointer { continue }
             let p = t.location(in: self)
             if editing {
@@ -343,16 +332,15 @@ final class ControllerOverlayView: UIView {
             }
             if let id = buttonID(at: p), let m = model(id) {
                 roles[t] = .button(id)
-                flash("Nút: \(m.label)")
                 buttonViews[id]?.setPressed(true)
                 recomputeAim()
                 onAction?(m.action, true)
             } else if joystickHit(p) {
                 roles[t] = .joystick
                 moveJoystick(to: p)
-            } else {
+            } else if !hudHidden {
+                // Vùng trống: CHỈ để vuốt xoay camera, chạm / giữ không bao giờ thành click chuột
                 roles[t] = .look
-                if feedback { lookDot.center = p; lookDot.isHidden = false; lookTotal = .zero }
             }
         }
     }
@@ -365,12 +353,6 @@ final class ControllerOverlayView: UIView {
             switch role {
             case .look:
                 onLook?(p.x - prev.x, p.y - prev.y)
-                if feedback {
-                    lookDot.center = p
-                    lookTotal.x += p.x - prev.x
-                    lookTotal.y += p.y - prev.y
-                    flash(String(format: "Vuốt: x %+.0f  y %+.0f", lookTotal.x, lookTotal.y))
-                }
             case .joystick:
                 moveJoystick(to: p)
             case .button:
@@ -413,7 +395,7 @@ final class ControllerOverlayView: UIView {
             startPoints[t] = nil
             switch role {
             case .look:
-                lookDot.isHidden = true
+                break
             case .joystick:
                 joystick.setOffset(.zero)
                 onJoystick?(0, 0)
@@ -430,5 +412,15 @@ final class ControllerOverlayView: UIView {
                 if !wasDragged, !cancelled { onEditJoystick?(joystick) }
             }
         }
+    }
+}
+
+// MARK: - Nhấn giữ chỉ nhận ở chỗ trống khi đang chỉnh sửa
+
+extension ControllerOverlayView: UIGestureRecognizerDelegate {
+    override func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+        guard gestureRecognizer === longPress else { return true }
+        let p = gestureRecognizer.location(in: self)
+        return editing && buttonID(at: p) == nil && !joystickHit(p)
     }
 }
