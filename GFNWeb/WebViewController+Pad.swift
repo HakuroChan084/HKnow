@@ -887,8 +887,8 @@ final class GamingPanelView: UIView {
         add(segmented([InputMode.gamepad, .keyboardMouse].map { $0.shortTitle }, selected: host.inputMode == .keyboardMouse ? 1 : 0) { i in
             host.inputMode = (i == 1) ? .keyboardMouse : .gamepad
         })
-        add(caption("Cách gửi nút ở chế độ Chuột + Phím. Tay cầm ảo (khuyên dùng): LMB = RT, RMB = LT, MMB = R3, phím -> nút Xbox, game không chặn được."))
-        add(segmented(["Tay cầm ảo", "Chuột + RT/LT", "Chỉ chuột"], selected: min(max(s.kbmFire, 0), 2)) { i in
+        add(caption("Cách bắn ở chế độ Chuột + Phím (thử nếu không bắn được)"))
+        add(segmented(["Chuột + RT/LT", "Chỉ chuột", "Chỉ RT/LT"], selected: min(max(s.kbmFire, 0), 2)) { i in
             PadStore.shared.settings.kbmFire = i
             host.commitPad()
         })

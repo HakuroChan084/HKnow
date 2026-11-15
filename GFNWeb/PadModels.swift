@@ -329,8 +329,7 @@ struct PadSettings: Codable {
     // Mặc định "Chạm gốc": cú chạm thật (isTrusted) đi thẳng vào game, GFN tự đổi thành click chuột
     var mouseStyle: MouseTouchStyle = .native
 
-    /// Chế độ Chuột + Phím: cách gửi nút vào game. 0 = HỢP NHẤT vào tay cầm Xbox ảo (mọi nút chuột / phím trên HUD -> nút tay cầm,
-    /// game không chặn được vì không phải sự kiện chuột giả), 1 = click chuột + RT/LT, 2 = chỉ click chuột
+    /// Chế độ Chuột + Phím: cách gửi nút bắn / ngắm vào game. 0 = cả click chuột lẫn RT/LT, 1 = chỉ click chuột, 2 = chỉ RT/LT
     var kbmFire = 0
     /// Đảo chuột trái <-> phải (để thử khi game hiểu ngược nút)
     var swapMouse = false
@@ -344,7 +343,7 @@ struct PadSettings: Codable {
         case enabled, opacity, lookSensitivity, gyroMode, gyroSensitivity, gyroInvertX, gyroInvertY
         case joyX, joyY, joySize, buttons       // bố cục Tay cầm (giữ khóa cũ để đọc được dữ liệu đã lưu)
         case kbmLayout
-        case kbmFire = "kbmFireV2", swapMouse, mouseKeyAlias
+        case kbmFire, swapMouse, mouseKeyAlias
         case splitV2            // đã tách riêng nút chuột và nút tay cầm
         case fireEnsured        // đã đảm bảo bố cục Chuột + Phím có nút Chuột trái (bắn)
         case mouseStyle = "mouseStyleV2"      // khóa mới: bỏ lựa chọn cũ (Con trỏ ảo) một lần để dùng mặc định Chạm gốc
