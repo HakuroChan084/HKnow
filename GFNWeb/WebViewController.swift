@@ -335,7 +335,7 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
         let trigOnly = (m == .keyboardMouse) && !launcher && fireMode != 1
         let clicks = fireMode != 2
         wv.evaluateJavaScript(
-            "window.__gfnMouse&&window.__gfnMouse.config({pad:\(m.usesPad || launcher || trigOnly),kbm:\(m.usesKBM && !launcher),launcher:\(launcher),trigOnly:\(trigOnly),clicks:\(clicks)})"
+            "window.__gfnMouse&&window.__gfnMouse.config({pad:\(m.usesPad || launcher || trigOnly),kbm:\(m.usesKBM && !launcher),launcher:\(launcher),trigOnly:\(trigOnly),clicks:\(clicks),keyAlias:\(PadStore.shared.settings.mouseKeyAlias)})"
         )
     }
 
@@ -821,7 +821,7 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
       var mods = { shift: false, ctrl: false, alt: false };
 
       // Cấu hình do Swift đẩy vào qua config(): dùng tay cầm ảo và/hoặc chuột-phím tổng hợp
-      var mode = { pad: true, kbm: false, launcher: false, trigOnly: false, clicks: true };   // mặc định dùng tay cầm; Swift sẽ gửi lại qua config()
+      var mode = { pad: true, kbm: false, launcher: false, trigOnly: false, clicks: true, keyAlias: true };   // mặc định dùng tay cầm; Swift sẽ gửi lại qua config()
 
       function post(v) {
         try { window.webkit.messageHandlers.gfnLock.postMessage(!!v); } catch (e) {}
@@ -1330,6 +1330,7 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
           mode.launcher = !!(c && c.launcher);
           mode.trigOnly = !!(c && c.trigOnly);
           mode.clicks = !(c && c.clicks === false);
+          mode.keyAlias = !(c && c.keyAlias === false);
           if (wasKbm && !mode.kbm) releaseKbmHeld();
           syncPad();                                   // tay cầm ảo vẫn cắm ở chế độ Launcher
           // Vào chế độ Launcher: thả khóa chuột đang giữ để GFN chuyển sang toạ độ tuyệt đối
@@ -1350,6 +1351,12 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
             ensureFocus();
             fire(down ? 'pointerdown' : 'pointerup', { button: b });
             fire(down ? 'mousedown' : 'mouseup', { button: b });
+          }
+          // Chuột + Phím: gửi KÈM phím tương ứng (LMB -> P, RMB -> O, MMB -> I), giữ liên tục tới lúc nhả,
+          // để gán phím phụ trong game (game không nhận click giả nhưng nhận phím). Vuốt ghìm tâm không làm nhả phím.
+          if (mode.kbm && lockEl && mode.keyAlias) {
+            var ka = b === 0 ? ['p', 'KeyP', 80] : (b === 2 ? ['o', 'KeyO', 79] : (b === 1 ? ['i', 'KeyI', 73] : null));
+            if (ka) window.__gfnMouse.key(ka[0], ka[1], ka[2], down);
           }
           if (padOn) recomputePad();
         },

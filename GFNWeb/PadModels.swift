@@ -333,6 +333,9 @@ struct PadSettings: Codable {
     var kbmFire = 0
     /// Đảo chuột trái <-> phải (để thử khi game hiểu ngược nút)
     var swapMouse = false
+    /// Chế độ Chuột + Phím: bấm LMB / RMB / MMB ảo thì GỬI KÈM phím P / O / I (game không nhận click giả, nhưng nhận phím:
+    /// vào cài đặt game gán phím phụ Bắn = P, Ngắm = O, Chuột giữa = I)
+    var mouseKeyAlias = true
 
     init() {}
 
@@ -340,7 +343,7 @@ struct PadSettings: Codable {
         case enabled, opacity, lookSensitivity, gyroMode, gyroSensitivity, gyroInvertX, gyroInvertY
         case joyX, joyY, joySize, buttons       // bố cục Tay cầm (giữ khóa cũ để đọc được dữ liệu đã lưu)
         case kbmLayout
-        case kbmFire, swapMouse
+        case kbmFire, swapMouse, mouseKeyAlias
         case splitV2            // đã tách riêng nút chuột và nút tay cầm
         case fireEnsured        // đã đảm bảo bố cục Chuột + Phím có nút Chuột trái (bắn)
         case mouseStyle = "mouseStyleV2"      // khóa mới: bỏ lựa chọn cũ (Con trỏ ảo) một lần để dùng mặc định Chạm gốc
@@ -364,6 +367,7 @@ struct PadSettings: Codable {
         kbmLayout = try c.decodeIfPresent(PadLayout.self, forKey: .kbmLayout) ?? kbmLayout
         kbmFire = try c.decodeIfPresent(Int.self, forKey: .kbmFire) ?? kbmFire
         swapMouse = try c.decodeIfPresent(Bool.self, forKey: .swapMouse) ?? swapMouse
+        mouseKeyAlias = try c.decodeIfPresent(Bool.self, forKey: .mouseKeyAlias) ?? mouseKeyAlias
         if !(try c.decodeIfPresent(Bool.self, forKey: .fireEnsured) ?? false) {
             // Bố cục Chuột + Phím đã chỉnh sửa mà không còn nút Chuột trái thì không thể bắn: thêm lại một nút Bắn (1 lần)
             let hasFire = kbmLayout.buttons.contains { b in
@@ -400,6 +404,7 @@ struct PadSettings: Codable {
         try c.encode(kbmLayout, forKey: .kbmLayout)
         try c.encode(kbmFire, forKey: .kbmFire)
         try c.encode(swapMouse, forKey: .swapMouse)
+        try c.encode(mouseKeyAlias, forKey: .mouseKeyAlias)
         try c.encode(true, forKey: .splitV2)
         try c.encode(true, forKey: .fireEnsured)
         try c.encode(mouseStyle, forKey: .mouseStyle)
