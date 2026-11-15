@@ -331,9 +331,11 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
         let launcher = (controlMode == .mouse)
         // Chuột + Phím: cắm thêm tay cầm ảo CHỈ để mang RT / LT (bắn / ngắm) khi bấm Chuột trái / phải,
         // vì game có thể không nhận click chuột tổng hợp nhưng luôn nhận tay cầm (trigOnly).
-        let trigOnly = (m == .keyboardMouse) && !launcher
+        let fireMode = PadStore.shared.settings.kbmFire      // 0 = cả hai, 1 = chỉ click chuột, 2 = chỉ RT / LT
+        let trigOnly = (m == .keyboardMouse) && !launcher && fireMode != 1
+        let clicks = fireMode != 2
         wv.evaluateJavaScript(
-            "window.__gfnMouse&&window.__gfnMouse.config({pad:\(m.usesPad || launcher || trigOnly),kbm:\(m.usesKBM && !launcher),launcher:\(launcher),trigOnly:\(trigOnly)})"
+            "window.__gfnMouse&&window.__gfnMouse.config({pad:\(m.usesPad || launcher || trigOnly),kbm:\(m.usesKBM && !launcher),launcher:\(launcher),trigOnly:\(trigOnly),clicks:\(clicks)})"
         )
     }
 
@@ -411,7 +413,9 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
     func perform(_ action: PadAction, down: Bool) {
         switch action {
         case .mouse(let button):
-            sendButton(button, down)
+            // Tùy chọn "Đảo chuột trái / phải" (chỉ đảo trái <-> phải, giữ nguyên chuột giữa)
+            let swapped = (PadStore.shared.settings.swapMouse && button != 1) ? 2 - button : button
+            sendButton(swapped, down)
         case .key(let spec):
             sendKey(spec, down)
         case .releaseLock:
@@ -792,7 +796,7 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
       var mods = { shift: false, ctrl: false, alt: false };
 
       // Cấu hình do Swift đẩy vào qua config(): dùng tay cầm ảo và/hoặc chuột-phím tổng hợp
-      var mode = { pad: true, kbm: false, launcher: false, trigOnly: false };   // mặc định dùng tay cầm; Swift sẽ gửi lại qua config()
+      var mode = { pad: true, kbm: false, launcher: false, trigOnly: false, clicks: true };   // mặc định dùng tay cầm; Swift sẽ gửi lại qua config()
 
       function post(v) {
         try { window.webkit.messageHandlers.gfnLock.postMessage(!!v); } catch (e) {}
@@ -1300,6 +1304,7 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
           var wasLauncher = mode.launcher;
           mode.launcher = !!(c && c.launcher);
           mode.trigOnly = !!(c && c.trigOnly);
+          mode.clicks = !(c && c.clicks === false);
           if (wasKbm && !mode.kbm) releaseKbmHeld();
           syncPad();                                   // tay cầm ảo vẫn cắm ở chế độ Launcher
           // Vào chế độ Launcher: thả khóa chuột đang giữ để GFN chuyển sang toạ độ tuyệt đối
@@ -1316,7 +1321,7 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
           var bit = b === 0 ? 1 : b === 2 ? 2 : b === 1 ? 4 : (8 << (b - 3));
           if (down) { buttonsMask |= bit; pressedButtons[b] = true; }
           else { buttonsMask &= ~bit; delete pressedButtons[b]; }
-          if (mode.kbm && lockEl) {
+          if (mode.kbm && lockEl && mode.clicks) {
             ensureFocus();
             fire(down ? 'pointerdown' : 'pointerup', { button: b });
             fire(down ? 'mousedown' : 'mouseup', { button: b });

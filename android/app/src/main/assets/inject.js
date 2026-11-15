@@ -48,7 +48,7 @@
   var mods = { shift: false, ctrl: false, alt: false };
 
   // Cấu hình do Swift đẩy vào qua config(): dùng tay cầm ảo và/hoặc chuột-phím tổng hợp
-  var mode = { pad: true, kbm: false, launcher: false, trigOnly: false };   // mặc định dùng tay cầm; Swift sẽ gửi lại qua config()
+  var mode = { pad: true, kbm: false, launcher: false, trigOnly: false, clicks: true };   // mặc định dùng tay cầm; Swift sẽ gửi lại qua config()
 
   function post(v) {
     try { window.webkit.messageHandlers.gfnLock.postMessage(!!v); } catch (e) {}
@@ -556,6 +556,7 @@
       var wasLauncher = mode.launcher;
       mode.launcher = !!(c && c.launcher);
       mode.trigOnly = !!(c && c.trigOnly);
+      mode.clicks = !(c && c.clicks === false);
       if (wasKbm && !mode.kbm) releaseKbmHeld();
       syncPad();                                   // tay cầm ảo vẫn cắm ở chế độ Launcher
       // Vào chế độ Launcher: thả khóa chuột đang giữ để GFN chuyển sang toạ độ tuyệt đối
@@ -572,7 +573,7 @@
       var bit = b === 0 ? 1 : b === 2 ? 2 : b === 1 ? 4 : (8 << (b - 3));
       if (down) { buttonsMask |= bit; pressedButtons[b] = true; }
       else { buttonsMask &= ~bit; delete pressedButtons[b]; }
-      if (mode.kbm && lockEl) {
+      if (mode.kbm && lockEl && mode.clicks) {
         ensureFocus();
         fire(down ? 'pointerdown' : 'pointerup', { button: b });
         fire(down ? 'mousedown' : 'mouseup', { button: b });
