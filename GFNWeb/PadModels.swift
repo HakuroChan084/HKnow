@@ -336,6 +336,7 @@ struct PadSettings: Codable {
         case joyX, joyY, joySize, buttons       // bố cục Tay cầm (giữ khóa cũ để đọc được dữ liệu đã lưu)
         case kbmLayout
         case splitV2            // đã tách riêng nút chuột và nút tay cầm
+        case fireEnsured        // đã đảm bảo bố cục Chuột + Phím có nút Chuột trái (bắn)
         case mouseStyle = "mouseStyleV2"      // khóa mới: bỏ lựa chọn cũ (Con trỏ ảo) một lần để dùng mặc định Chạm gốc
     }
 
@@ -355,6 +356,15 @@ struct PadSettings: Codable {
         padLayout.joySize = try c.decodeIfPresent(CGFloat.self, forKey: .joySize) ?? padLayout.joySize
         padLayout.buttons = try c.decodeIfPresent([PadButton].self, forKey: .buttons) ?? padLayout.buttons
         kbmLayout = try c.decodeIfPresent(PadLayout.self, forKey: .kbmLayout) ?? kbmLayout
+        if !(try c.decodeIfPresent(Bool.self, forKey: .fireEnsured) ?? false) {
+            // Bố cục Chuột + Phím đã chỉnh sửa mà không còn nút Chuột trái thì không thể bắn: thêm lại một nút Bắn (1 lần)
+            let hasFire = kbmLayout.buttons.contains { b in
+                if case .mouse(0) = b.action { return true } else { return false }
+            }
+            if !hasFire {
+                kbmLayout.buttons.append(PadButton(label: "Bắn", action: .mouse(0), x: 0.88, y: 0.62, size: 76))
+            }
+        }
         if !(try c.decodeIfPresent(Bool.self, forKey: .splitV2) ?? false) {
             // Dữ liệu cũ: nút "Bắn / Ngắm / R3" kiểu chuột trong bố cục Tay cầm -> đổi thành RT / LT / R3 của tay cầm
             padLayout.buttons = padLayout.buttons.map { b in
@@ -381,6 +391,7 @@ struct PadSettings: Codable {
         try c.encode(padLayout.buttons, forKey: .buttons)
         try c.encode(kbmLayout, forKey: .kbmLayout)
         try c.encode(true, forKey: .splitV2)
+        try c.encode(true, forKey: .fireEnsured)
         try c.encode(mouseStyle, forKey: .mouseStyle)
     }
 }
