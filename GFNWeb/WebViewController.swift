@@ -217,7 +217,7 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
         // forMainFrameOnly: false -> phần giả lập Safari/Mac chạy cả trong iframe.
         // Phần Pointer Lock + tay cầm ảo chỉ hoạt động ở khung chính (xem injectedJS).
         let script = WKUserScript(
-            source: WebViewController.injectedJS,
+            source: "window.__hkTouch=\(WebViewController.touchSpoofEnabled);\n" + WebViewController.injectedJS,
             injectionTime: .atDocumentStart,
             forMainFrameOnly: false
         )
@@ -745,30 +745,55 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
 
     // MARK: - JavaScript chèn vào trang
 
+    /// Giả lập laptop Windows CÓ màn hình cảm ứng (cho chế độ Launcher chạm gốc). Mặc định TẮT: laptop không cảm ứng
+    /// (như trước) để GFN dùng chuột / tay cầm bình thường khi bắn / ngắm. Đổi xong phải đóng hẳn app rồi mở lại.
+    static var touchSpoofEnabled: Bool {
+        get { UserDefaults.standard.bool(forKey: "gfnweb.touchSpoof.v1") }
+        set { UserDefaults.standard.set(newValue, forKey: "gfnweb.touchSpoof.v1") }
+    }
+
     private static let injectedJS = #"""
     (function () {
       'use strict';
 
       var isTop = (window.parent === window);
 
-      // ===== 1. Giả làm laptop Windows có màn hình cảm ứng (Chrome/Edge) =====
-      // KHÔNG xóa TouchEvent / Touch / TouchList / ontouch*: cú chạm thật của iPad đi thẳng vào web
-      // khi ở chế độ Chuột / Launcher (chạm gốc).
+      // ===== 1. Giả làm laptop Windows (Chrome/Edge). Cảm ứng: chỉ khi người dùng bật (window.__hkTouch) =====
+      var TOUCH = (window.__hkTouch === true);
       try {
-        Object.defineProperty(Navigator.prototype, 'maxTouchPoints', { get: function () { return 5; }, configurable: true });
+        Object.defineProperty(Navigator.prototype, 'maxTouchPoints', { get: function () { return TOUCH ? 5 : 0; }, configurable: true });
         Object.defineProperty(Navigator.prototype, 'platform', { get: function () { return 'Win32'; }, configurable: true });
       } catch (e) {}
+      if (!TOUCH) {
+        // Không cảm ứng => GFN hiện giao diện desktop và nhận chuột / phím / tay cầm như máy tính thường
+        try {
+          ['ontouchstart', 'ontouchend', 'ontouchmove', 'ontouchcancel'].forEach(function (p) {
+            [window, Window.prototype, Document.prototype, HTMLElement.prototype, Element.prototype].forEach(function (o) {
+              try { delete o[p]; } catch (e) {}
+            });
+          });
+          ['TouchEvent', 'Touch', 'TouchList'].forEach(function (n) {
+            try { delete window[n]; } catch (e) {}
+            try { if (n in window) window[n] = undefined; } catch (e) {}
+          });
+        } catch (e) {}
+      }
       try {
         var _mm = window.matchMedia.bind(window);
         window.matchMedia = function (q) {
           var s = String(q).replace(/\s+/g, '');
-          // Laptop cảm ứng: con trỏ chính là chuột/trackpad (fine), có thêm cảm ứng (any-pointer: coarse)
-          if (/^\(pointer:fine\)$/.test(s)) return _mm('all');
-          if (/^\(pointer:(coarse|none)\)$/.test(s)) return _mm('not all');
-          if (/^\(any-pointer:(fine|coarse)\)$/.test(s)) return _mm('all');
-          if (/^\(any-pointer:none\)$/.test(s)) return _mm('not all');
-          if (/^\((any-)?hover:hover\)$/.test(s)) return _mm('all');
-          if (/^\((any-)?hover:none\)$/.test(s)) return _mm('not all');
+          if (TOUCH) {
+            // Laptop cảm ứng: con trỏ chính là chuột/trackpad (fine), có thêm cảm ứng (any-pointer: coarse)
+            if (/^\(pointer:fine\)$/.test(s)) return _mm('all');
+            if (/^\(pointer:(coarse|none)\)$/.test(s)) return _mm('not all');
+            if (/^\(any-pointer:(fine|coarse)\)$/.test(s)) return _mm('all');
+            if (/^\(any-pointer:none\)$/.test(s)) return _mm('not all');
+            if (/^\((any-)?hover:hover\)$/.test(s)) return _mm('all');
+            if (/^\((any-)?hover:none\)$/.test(s)) return _mm('not all');
+          } else {
+            if (/^\((any-)?(pointer:coarse|pointer:none|hover:none)\)$/.test(s)) return _mm('not all');
+            if (/^\((any-)?(pointer:fine|hover:hover)\)$/.test(s)) return _mm('all');
+          }
           // Giả làm web app đã "Thêm vào Màn hình chính" (chế độ standalone)
           if (/^\(display-mode:(standalone|fullscreen)\)$/.test(s)) return _mm('all');
           if (/^\(display-mode:browser\)$/.test(s)) return _mm('not all');
