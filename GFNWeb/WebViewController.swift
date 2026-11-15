@@ -329,8 +329,11 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
         let m = inputMode
         // Chế độ Chuột / Launcher: tay cầm Xbox ảo LUÔN cắm (không rút), và JS ngừng chặn chạm / chuột thật
         let launcher = (controlMode == .mouse)
+        // Chuột + Phím: cắm thêm tay cầm ảo CHỈ để mang RT / LT (bắn / ngắm) khi bấm Chuột trái / phải,
+        // vì game có thể không nhận click chuột tổng hợp nhưng luôn nhận tay cầm (trigOnly).
+        let trigOnly = (m == .keyboardMouse) && !launcher
         wv.evaluateJavaScript(
-            "window.__gfnMouse&&window.__gfnMouse.config({pad:\(m.usesPad || launcher),kbm:\(m.usesKBM && !launcher),launcher:\(launcher)})"
+            "window.__gfnMouse&&window.__gfnMouse.config({pad:\(m.usesPad || launcher || trigOnly),kbm:\(m.usesKBM && !launcher),launcher:\(launcher),trigOnly:\(trigOnly)})"
         )
     }
 
@@ -789,7 +792,7 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
       var mods = { shift: false, ctrl: false, alt: false };
 
       // Cấu hình do Swift đẩy vào qua config(): dùng tay cầm ảo và/hoặc chuột-phím tổng hợp
-      var mode = { pad: true, kbm: false, launcher: false };   // mặc định dùng tay cầm; Swift sẽ gửi lại qua config()
+      var mode = { pad: true, kbm: false, launcher: false, trigOnly: false };   // mặc định dùng tay cầm; Swift sẽ gửi lại qua config()
 
       function post(v) {
         try { window.webkit.messageHandlers.gfnLock.postMessage(!!v); } catch (e) {}
@@ -859,6 +862,8 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
           buttons: buttonsMask
         };
         for (var k in init) base[k] = init[k];
+        if (type.indexOf('pointer') === 0) base.pressure = buttonsMask ? 0.5 : 0;
+        else if (type === 'mousedown' || type === 'mouseup') base.detail = 1;
         var ev;
         if (type.indexOf('pointer') === 0 && window.PointerEvent) {
           base.pointerType = 'mouse'; base.pointerId = 1; base.isPrimary = true;
@@ -998,7 +1003,12 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
           lx = dx; ly = dy;
           if (dx !== 0 && dy !== 0) { lx *= 0.7071; ly *= 0.7071; }
         }
-        var a = [lx, ly, rightStick.x, rightStick.y];
+        // Chuột + Phím: tay cầm ảo chỉ mang RT / LT (từ chuột trái / phải), mọi thứ khác để phím chuột lo
+        if (mode.trigOnly) {
+          for (i = 0; i < BTN_COUNT; i++) { if (i !== 6 && i !== 7) b[i] = 0; }
+          lx = 0; ly = 0;
+        }
+        var a = [lx, ly, mode.trigOnly ? 0 : rightStick.x, mode.trigOnly ? 0 : rightStick.y];
         var changed = false;
         for (i = 0; i < BTN_COUNT; i++) { if (b[i] !== padBtn[i]) { changed = true; break; } }
         if (!changed) { for (i = 0; i < 4; i++) { if (a[i] !== padAx[i]) { changed = true; break; } } }
@@ -1289,6 +1299,7 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
           mode.kbm = !!(c && c.kbm);
           var wasLauncher = mode.launcher;
           mode.launcher = !!(c && c.launcher);
+          mode.trigOnly = !!(c && c.trigOnly);
           if (wasKbm && !mode.kbm) releaseKbmHeld();
           syncPad();                                   // tay cầm ảo vẫn cắm ở chế độ Launcher
           // Vào chế độ Launcher: thả khóa chuột đang giữ để GFN chuyển sang toạ độ tuyệt đối
