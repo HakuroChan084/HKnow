@@ -18,7 +18,38 @@ extension WebViewController {
         topBar.modeToggle.addTarget(self, action: #selector(modeToggleTapped), for: .touchUpInside)
         topBar.doneButton.addTarget(self, action: #selector(doneEditingTapped), for: .touchUpInside)
         topBar.scheduleDim()
+
+        // Nút bàn phím ảo ở góc phải (hiện ở chế độ Chuột / Launcher)
+        let kcfg = UIImage.SymbolConfiguration(pointSize: 18, weight: .semibold)
+        keyboardButton.setImage(UIImage(systemName: "keyboard", withConfiguration: kcfg), for: .normal)
+        keyboardButton.tintColor = .white
+        keyboardButton.backgroundColor = UIColor.black.withAlphaComponent(0.55)
+        keyboardButton.layer.cornerRadius = 20
+        keyboardButton.layer.borderWidth = 1
+        keyboardButton.layer.borderColor = Neon.accent.withAlphaComponent(0.45).cgColor
+        keyboardButton.translatesAutoresizingMaskIntoConstraints = false
+        keyboardButton.isHidden = true
+        keyboardButton.addTarget(self, action: #selector(keyboardButtonTapped), for: .touchUpInside)
+        view.addSubview(keyboardButton)
+        NSLayoutConstraint.activate([
+            keyboardButton.widthAnchor.constraint(equalToConstant: 40),
+            keyboardButton.heightAnchor.constraint(equalToConstant: 40),
+            keyboardButton.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -12),
+            keyboardButton.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 3),
+        ])
         refreshMenu()
+    }
+
+    @objc private func keyboardButtonTapped() {
+        toggleKeyboard()
+        // Đổi màu nút theo trạng thái bàn phím (đợi iOS cập nhật first responder)
+        DispatchQueue.main.async { [weak self] in self?.refreshKeyboardButton() }
+    }
+
+    func refreshKeyboardButton() {
+        let on = keyField.isFirstResponder
+        keyboardButton.tintColor = on ? Neon.accent : .white
+        keyboardButton.backgroundColor = on ? UIColor.black.withAlphaComponent(0.8) : UIColor.black.withAlphaComponent(0.55)
     }
 
     @objc private func settingsTapped() {
@@ -46,6 +77,10 @@ extension WebViewController {
     func refreshMenu() {
         guard isViewLoaded else { return }
         topBar.update(mode: controlMode, editing: padEditing)
+        keyboardButton.isHidden = (controlMode != .mouse) || padEditing
+        view.bringSubviewToFront(keyboardButton)
+        if let p = settingsPanel { view.bringSubviewToFront(p); view.bringSubviewToFront(topBar) }
+        refreshKeyboardButton()
         settingsPanel?.syncState()
     }
 

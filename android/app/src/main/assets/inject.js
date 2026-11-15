@@ -390,22 +390,41 @@
   }
 
   // Trả về true nếu trang đã chặn mặc định (preventDefault) ở keydown
-  function typeKey(key, code, keyCode, withPress) {
+  function typeKey(key, code, keyCode, withPress, shift) {
     var t = document.activeElement || document.body;
     var res = false;
-    ['keydown'].concat(withPress ? ['keypress'] : []).concat(['keyup']).forEach(function (type) {
+    function mk(type, k, c, kc, sh) {
       var ev = new KeyboardEvent(type, {
-        key: key, code: code, bubbles: true, cancelable: true, composed: true, view: window
+        key: k, code: c, shiftKey: !!sh, bubbles: true, cancelable: true, composed: true, view: window
       });
       try {
-        Object.defineProperty(ev, 'keyCode', { value: keyCode });
-        Object.defineProperty(ev, 'which', { value: keyCode });
+        Object.defineProperty(ev, 'keyCode', { value: kc });
+        Object.defineProperty(ev, 'which', { value: kc });
       } catch (e) {}
       t.dispatchEvent(ev);
+      return ev;
+    }
+    if (shift) mk('keydown', 'Shift', 'ShiftLeft', 16, true);
+    ['keydown'].concat(withPress ? ['keypress'] : []).concat(['keyup']).forEach(function (type) {
+      var ev = mk(type, key, code, keyCode, shift);
       if (type === 'keydown' && ev.defaultPrevented) res = true;
     });
+    if (shift) mk('keyup', 'Shift', 'ShiftLeft', 16, false);
     return res;
   }
+
+  // Bàn phím Mỹ: ký tự -> [code, keyCode, cần Shift]. Cần cho "@", ".", "_", "-", ... trong mail / mật khẩu
+  var SYM = {
+    '-': ['Minus', 189, 0], '=': ['Equal', 187, 0], '[': ['BracketLeft', 219, 0], ']': ['BracketRight', 221, 0],
+    '\\': ['Backslash', 220, 0], ';': ['Semicolon', 186, 0], "'": ['Quote', 222, 0], ',': ['Comma', 188, 0],
+    '.': ['Period', 190, 0], '/': ['Slash', 191, 0], '`': ['Backquote', 192, 0],
+    '_': ['Minus', 189, 1], '+': ['Equal', 187, 1], '{': ['BracketLeft', 219, 1], '}': ['BracketRight', 221, 1],
+    '|': ['Backslash', 220, 1], ':': ['Semicolon', 186, 1], '"': ['Quote', 222, 1], '<': ['Comma', 188, 1],
+    '>': ['Period', 190, 1], '?': ['Slash', 191, 1], '~': ['Backquote', 192, 1],
+    '!': ['Digit1', 49, 1], '@': ['Digit2', 50, 1], '#': ['Digit3', 51, 1], '$': ['Digit4', 52, 1],
+    '%': ['Digit5', 53, 1], '^': ['Digit6', 54, 1], '&': ['Digit7', 55, 1], '*': ['Digit8', 56, 1],
+    '(': ['Digit9', 57, 1], ')': ['Digit0', 48, 1]
+  };
 
   function typeChar(ch) {
     var el = document.activeElement;
@@ -415,8 +434,12 @@
       if (ok) return;
     }
     var up = ch.toUpperCase();
-    var code = /[a-z]/i.test(ch) ? 'Key' + up : (/[0-9]/.test(ch) ? 'Digit' + ch : (ch === ' ' ? 'Space' : ''));
-    typeKey(ch, code, up.charCodeAt(0), true);
+    if (/[a-z]/i.test(ch)) { typeKey(ch, 'Key' + up, up.charCodeAt(0), true, ch !== ch.toLowerCase()); return; }
+    if (/[0-9]/.test(ch)) { typeKey(ch, 'Digit' + ch, ch.charCodeAt(0), true, false); return; }
+    if (ch === ' ') { typeKey(' ', 'Space', 32, true, false); return; }
+    var sy = SYM[ch];
+    if (sy) { typeKey(ch, sy[0], sy[1], true, !!sy[2]); return; }
+    typeKey(ch, '', up.charCodeAt(0), true, false);
   }
 
   // Đếm số gói gửi qua RTCDataChannel (chỉ đếm để chẩn đoán, không đổi dữ liệu)
