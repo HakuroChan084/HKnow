@@ -855,9 +855,9 @@ final class GamingPanelView: UIView {
 
         // --- CAMERA & GYRO ---
         addSection("CAMERA & GYRO")
-        add(tile(sliderRow("Độ nhạy vuốt", lo: 0.3, hi: 3.0, value: Float(s.lookSensitivity),
-                           format: { String(format: "%.2fx", $0) },
-                           live: { PadStore.shared.settings.lookSensitivity = CGFloat(($0 * 20).rounded() / 20) },
+        add(tile(sliderRow("Độ nhạy vuốt", lo: 0.3, hi: 10.0, value: Float(s.lookSensitivity),
+                           format: { String(format: "%.1fx", $0) },
+                           live: { PadStore.shared.settings.lookSensitivity = CGFloat(($0 * 10).rounded() / 10) },
                            commit: { PadStore.shared.save() })))
         add(caption("Gyro (nghiêng máy để ngắm)"))
         let gyroIndex: Int
