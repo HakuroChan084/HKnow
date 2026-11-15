@@ -884,9 +884,10 @@ final class GamingPanelView: UIView {
             host.perform(.toggleHUD, down: true)
         }))
         add(caption("Chế độ nhập liệu"))
-        add(segmented(InputMode.allCases.map { $0.shortTitle }, selected: host.inputMode.rawValue) { i in
-            if let m = InputMode(rawValue: i) { host.inputMode = m }
+        add(segmented([InputMode.gamepad, .keyboardMouse].map { $0.shortTitle }, selected: host.inputMode == .keyboardMouse ? 1 : 0) { i in
+            host.inputMode = (i == 1) ? .keyboardMouse : .gamepad
         })
+        add(caption("Mỗi chế độ có bố cục nút riêng (chỉnh ở mục Chỉnh nút). Tay cầm: joystick = cần trái, vuốt / gyro = cần phải. Chuột + Phím: joystick = W A S D, vuốt / gyro = chuột."))
 
         // --- CAMERA & GYRO ---
         addSection("CAMERA & GYRO")
@@ -954,12 +955,12 @@ final class GamingPanelView: UIView {
             host.dismissSettingsPanel()
             let alert = UIAlertController(
                 title: "Đặt lại bố cục?",
-                message: "Toàn bộ nút và cài đặt điều khiển sẽ về mặc định.",
+                message: "Bố cục nút của chế độ đang chọn (Tay cầm hoặc Chuột + Phím) sẽ về mặc định. Bố cục của chế độ kia giữ nguyên.",
                 preferredStyle: .alert
             )
             alert.addAction(UIAlertAction(title: "Hủy", style: .cancel))
             alert.addAction(UIAlertAction(title: "Đặt lại", style: .destructive) { _ in
-                PadStore.shared.settings = PadSettings()
+                PadStore.shared.settings.resetActiveLayout()     // chỉ đặt lại bố cục của chế độ đang chọn
                 host.commitPad()
             })
             host.present(alert, animated: true)

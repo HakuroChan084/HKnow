@@ -587,6 +587,20 @@
       }
       if (padOn) recomputePad();
     },
+    // Chế độ Chuột + Phím chơi bằng cảm ứng: chưa ai bấm vào video nên game chưa xin khóa chuột.
+    // Tự khóa vào khung video đang phát (khung hình lớn nhất) để chuột / phím tổng hợp có chỗ nhận.
+    engage: function () {
+      if (lockEl || !mode.kbm || mode.launcher) return false;
+      var best = null, area = 0, vw = window.innerWidth * window.innerHeight;
+      var vs = document.getElementsByTagName('video');
+      for (var i = 0; i < vs.length; i++) {
+        var v = vs[i], r = v.getBoundingClientRect(), a = r.width * r.height;
+        if (v.videoWidth > 0 && !v.paused && a > area) { best = v; area = a; }
+      }
+      if (!best || area < vw * 0.4) return false;
+      try { best.requestPointerLock(); } catch (e) { return false; }
+      return true;
+    },
     // Nút tay cầm ảo gán trực tiếp (chỉ số theo mapping standard)
     pad: function (i, down) {
       if (!padOn) { if (down) return; }

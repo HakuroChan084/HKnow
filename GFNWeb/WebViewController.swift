@@ -105,16 +105,27 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
     /// Chống "tự bấm chuột": thời điểm bắt đầu khóa chuột + các nút đã thật sự được nhấn trong lúc khóa
 
     /// Chế độ gửi input, lưu lại giữa các lần mở app. Mặc định: tay cầm ảo.
-    var inputMode: InputMode = InputMode(
-        rawValue: UserDefaults.standard.integer(forKey: "gfnweb.inputMode.v1")
-    ) ?? .gamepad {
+    /// Chỉ còn 2 chế độ: Tay cầm / Chuột + Phím, mỗi chế độ có bố cục riêng (chế độ "Cả hai" cũ quy về Tay cầm).
+    var inputMode: InputMode = {
+        let m = InputMode(rawValue: UserDefaults.standard.integer(forKey: "gfnweb.inputMode.v1")) ?? .gamepad
+        return m == .both ? .gamepad : m
+    }() {
         didSet {
             guard oldValue != inputMode else { return }
             UserDefaults.standard.set(inputMode.rawValue, forKey: "gfnweb.inputMode.v1")
+            overlay.reset(notify: true)         // nhả mọi nút đang giữ của bố cục cũ
+            releaseWASD()
+            PadSettings.kbmActive = (inputMode == .keyboardMouse)
+            overlay.reload()                    // dựng lại nút / joystick theo bố cục của chế độ mới
             resetStick()
             applyPadState()
         }
     }
+
+    /// Các phím W A S D đang được joystick giữ (chế độ Chuột + Phím)
+    private var wasdDown: Set<String> = []
+    /// Lần cuối app tự xin khóa chuột cho game (chế độ Chuột + Phím)
+    private var lastEngage: CFTimeInterval = 0
 
     /// Chế độ chạm hiện tại: Chiến đấu (HUD) hoặc Chuột / Launcher. Không lưu: mỗi lần mở app luôn vào Chiến đấu.
     /// Đổi bằng setControlMode(_:) để nhả sạch nút / phím đang giữ trước khi chuyển.
@@ -251,6 +262,7 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
         overlay.onEditButton = { [weak self] id, source in self?.presentButtonEditor(id, from: source) }
         overlay.onEditJoystick = { [weak self] source in self?.presentJoystickEditor(from: source) }
         overlay.onLongPressEmpty = { [weak self] point in self?.presentAddButtonAt(point) }
+        PadSettings.kbmActive = (inputMode == .keyboardMouse)   // chọn đúng bố cục trước khi dựng nút
         overlay.reload()
         setupKeyField()
 
@@ -323,12 +335,14 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
     }
 
     private func resetStick() {
+        releaseWASD()
         stickVX = 0; stickVY = 0
         stickWasActive = false
         lastLeftX = 0; lastLeftY = 0
     }
 
     private func addLook(_ dx: CGFloat, _ dy: CGFloat) {
+        engageIfNeeded()
         guard inputLive else { return }
         let k = PadStore.shared.settings.lookSensitivity
         pendingDX += dx * k
@@ -561,7 +575,7 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
 
     /// Joystick đi (analog) -> cần gạt trái (axes[0], axes[1]). x, y trong [-1, 1], y dương = xuống.
     private func sendLeft(_ x: CGFloat, _ y: CGFloat) {
-        guard inputMode.usesPad else { return }
+        guard inputMode.usesPad else { sendWASD(x, y); return }
         var lx = x, ly = y
         if !inputLive { lx = 0; ly = 0 }
         let mag = hypot(lx, ly)
@@ -579,8 +593,40 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
         )
     }
 
+    /// Chế độ Chuột + Phím: joystick đi -> giữ / nhả W A S D (cho phép đi chéo)
+    private func sendWASD(_ x: CGFloat, _ y: CGFloat) {
+        var lx = x, ly = y
+        if !inputLive { lx = 0; ly = 0 }
+        let t: CGFloat = 0.38
+        let want: [(KeySpec, Bool)] = [(.w, ly < -t), (.s, ly > t), (.a, lx < -t), (.d, lx > t)]
+        for (k, on) in want {
+            let has = wasdDown.contains(k.code)
+            if on && !has { wasdDown.insert(k.code); sendKey(k, true) }
+            else if !on && has { wasdDown.remove(k.code); sendKey(k, false) }
+        }
+    }
+
+    private func releaseWASD() {
+        guard !wasdDown.isEmpty else { return }
+        let all: [KeySpec] = [.w, .a, .s, .d]
+        for k in all where wasdDown.contains(k.code) { sendKey(k, false) }
+        wasdDown.removeAll()
+    }
+
+    /// Chế độ Chuột + Phím chơi 100% cảm ứng: chưa có khóa chuột (không ai bấm vào video) thì tự xin khóa cho game
+    /// ngay khi ngón tay chạm vào bộ điều khiển. Chỉ làm khi đang ở Chiến đấu, HUD bật, trang chưa khóa.
+    private func engageIfNeeded() {
+        guard inputMode == .keyboardMouse, controlMode == .hud, !isMouseCaptured,
+              PadStore.shared.settings.enabled, !padEditing, !overlay.hudHidden else { return }
+        let now = CACurrentMediaTime()
+        guard now - lastEngage > 1.0 else { return }
+        lastEngage = now
+        webView.evaluateJavaScript("window.__gfnMouse&&window.__gfnMouse.engage&&window.__gfnMouse.engage()")
+    }
+
     // Lệnh NHẢ luôn được gửi (không chặn bởi inputLive) để không bao giờ kẹt nút khi tắt / ẩn HUD
     private func sendButton(_ button: Int, _ pressed: Bool) {
+        if pressed { engageIfNeeded() }
         guard inputLive || !pressed else { return }
         webView.evaluateJavaScript(
             "window.__gfnMouse&&window.__gfnMouse.button(\(button),\(pressed ? "true" : "false"))"
@@ -595,6 +641,7 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
     }
 
     private func sendKey(_ spec: KeySpec, _ down: Bool) {
+        if down { engageIfNeeded() }
         guard inputLive || !down else { return }
         let js = "window.__gfnMouse&&window.__gfnMouse.key(\"\(spec.key)\",\"\(spec.code)\",\(spec.keyCode),\(down ? "true" : "false"))"
         webView.evaluateJavaScript(js)
@@ -1280,6 +1327,20 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
             fireKey(down ? 'keydown' : 'keyup', key, code, keyCode);
           }
           if (padOn) recomputePad();
+        },
+        // Chế độ Chuột + Phím chơi bằng cảm ứng: chưa ai bấm vào video nên game chưa xin khóa chuột.
+        // Tự khóa vào khung video đang phát (khung hình lớn nhất) để chuột / phím tổng hợp có chỗ nhận.
+        engage: function () {
+          if (lockEl || !mode.kbm || mode.launcher) return false;
+          var best = null, area = 0, vw = window.innerWidth * window.innerHeight;
+          var vs = document.getElementsByTagName('video');
+          for (var i = 0; i < vs.length; i++) {
+            var v = vs[i], r = v.getBoundingClientRect(), a = r.width * r.height;
+            if (v.videoWidth > 0 && !v.paused && a > area) { best = v; area = a; }
+          }
+          if (!best || area < vw * 0.4) return false;
+          try { best.requestPointerLock(); } catch (e) { return false; }
+          return true;
         },
         // Nút tay cầm ảo gán trực tiếp (chỉ số theo mapping standard)
         pad: function (i, down) {

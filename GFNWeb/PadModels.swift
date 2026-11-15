@@ -292,12 +292,35 @@ struct PadSettings: Codable {
     var gyroInvertX = false
     var gyroInvertY = false
 
-    // Joystick đi (WASD)
-    var joyX: CGFloat = 0.13
-    var joyY: CGFloat = 0.70
-    var joySize: CGFloat = 150
+    // Hai bố cục TÁCH BIỆT: "Tay cầm" và "Chuột + Phím". Mọi chỗ dùng buttons / joyX / joyY / joySize
+    // tự trỏ vào bố cục của chế độ đang chọn (PadSettings.kbmActive do WebViewController đặt).
+    var padLayout = PadLayout.defaultPad
+    var kbmLayout = PadLayout.defaultKBM
 
-    var buttons: [PadButton] = PadSettings.defaultButtons
+    /// true = đang dùng chế độ Chuột + Phím (bố cục riêng)
+    static var kbmActive = false
+
+    var buttons: [PadButton] {
+        get { PadSettings.kbmActive ? kbmLayout.buttons : padLayout.buttons }
+        set { if PadSettings.kbmActive { kbmLayout.buttons = newValue } else { padLayout.buttons = newValue } }
+    }
+    var joyX: CGFloat {
+        get { PadSettings.kbmActive ? kbmLayout.joyX : padLayout.joyX }
+        set { if PadSettings.kbmActive { kbmLayout.joyX = newValue } else { padLayout.joyX = newValue } }
+    }
+    var joyY: CGFloat {
+        get { PadSettings.kbmActive ? kbmLayout.joyY : padLayout.joyY }
+        set { if PadSettings.kbmActive { kbmLayout.joyY = newValue } else { padLayout.joyY = newValue } }
+    }
+    var joySize: CGFloat {
+        get { PadSettings.kbmActive ? kbmLayout.joySize : padLayout.joySize }
+        set { if PadSettings.kbmActive { kbmLayout.joySize = newValue } else { padLayout.joySize = newValue } }
+    }
+
+    /// Đặt lại bố cục của chế độ đang chọn (không đụng bố cục kia)
+    mutating func resetActiveLayout() {
+        if PadSettings.kbmActive { kbmLayout = .defaultKBM } else { padLayout = .defaultPad }
+    }
 
     // Chế độ Chuột / Launcher
     // Mặc định "Chạm gốc": cú chạm thật (isTrusted) đi thẳng vào game, GFN tự đổi thành click chuột
@@ -307,7 +330,8 @@ struct PadSettings: Codable {
 
     private enum CodingKeys: String, CodingKey {
         case enabled, opacity, lookSensitivity, gyroMode, gyroSensitivity, gyroInvertX, gyroInvertY
-        case joyX, joyY, joySize, buttons
+        case joyX, joyY, joySize, buttons       // bố cục Tay cầm (giữ khóa cũ để đọc được dữ liệu đã lưu)
+        case kbmLayout
         case mouseStyle = "mouseStyleV2"      // khóa mới: bỏ lựa chọn cũ (Con trỏ ảo) một lần để dùng mặc định Chạm gốc
     }
 
@@ -322,22 +346,68 @@ struct PadSettings: Codable {
         gyroSensitivity = try c.decodeIfPresent(CGFloat.self, forKey: .gyroSensitivity) ?? gyroSensitivity
         gyroInvertX = try c.decodeIfPresent(Bool.self, forKey: .gyroInvertX) ?? gyroInvertX
         gyroInvertY = try c.decodeIfPresent(Bool.self, forKey: .gyroInvertY) ?? gyroInvertY
-        joyX = try c.decodeIfPresent(CGFloat.self, forKey: .joyX) ?? joyX
-        joyY = try c.decodeIfPresent(CGFloat.self, forKey: .joyY) ?? joyY
-        joySize = try c.decodeIfPresent(CGFloat.self, forKey: .joySize) ?? joySize
-        buttons = try c.decodeIfPresent([PadButton].self, forKey: .buttons) ?? buttons
+        padLayout.joyX = try c.decodeIfPresent(CGFloat.self, forKey: .joyX) ?? padLayout.joyX
+        padLayout.joyY = try c.decodeIfPresent(CGFloat.self, forKey: .joyY) ?? padLayout.joyY
+        padLayout.joySize = try c.decodeIfPresent(CGFloat.self, forKey: .joySize) ?? padLayout.joySize
+        padLayout.buttons = try c.decodeIfPresent([PadButton].self, forKey: .buttons) ?? padLayout.buttons
+        kbmLayout = try c.decodeIfPresent(PadLayout.self, forKey: .kbmLayout) ?? kbmLayout
         mouseStyle = try c.decodeIfPresent(MouseTouchStyle.self, forKey: .mouseStyle) ?? mouseStyle
     }
 
-    static var defaultButtons: [PadButton] {
-        [
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(enabled, forKey: .enabled)
+        try c.encode(opacity, forKey: .opacity)
+        try c.encode(lookSensitivity, forKey: .lookSensitivity)
+        try c.encode(gyroMode, forKey: .gyroMode)
+        try c.encode(gyroSensitivity, forKey: .gyroSensitivity)
+        try c.encode(gyroInvertX, forKey: .gyroInvertX)
+        try c.encode(gyroInvertY, forKey: .gyroInvertY)
+        try c.encode(padLayout.joyX, forKey: .joyX)
+        try c.encode(padLayout.joyY, forKey: .joyY)
+        try c.encode(padLayout.joySize, forKey: .joySize)
+        try c.encode(padLayout.buttons, forKey: .buttons)
+        try c.encode(kbmLayout, forKey: .kbmLayout)
+        try c.encode(mouseStyle, forKey: .mouseStyle)
+    }
+}
+
+/// Một bố cục: joystick đi + các nút
+struct PadLayout: Codable {
+    var joyX: CGFloat = 0.13
+    var joyY: CGFloat = 0.70
+    var joySize: CGFloat = 150
+    var buttons: [PadButton]
+
+    /// Bố cục Tay cầm (nút ảo Xbox: Bắn = RT, Ngắm = LT...)
+    static var defaultPad: PadLayout {
+        PadLayout(buttons: [
             PadButton(label: "Bắn", action: .mouse(0), x: 0.88, y: 0.58, size: 92),
             PadButton(label: "Ngắm", action: .mouse(2), x: 0.76, y: 0.70, size: 72),
             PadButton(label: "Nhảy", action: .key(.space), x: 0.92, y: 0.82, size: 64),
             PadButton(label: "R", action: .key(KeySpec.parse("R")!), x: 0.66, y: 0.84, size: 56),
             PadButton(label: "Ngồi", action: .key(.ctrl), x: 0.40, y: 0.84, size: 56),
             PadButton(label: "Chạy", action: .key(.shift), x: 0.28, y: 0.48, size: 56),
-        ]
+        ])
+    }
+
+    /// Bố cục Chuột + Phím (joystick = W A S D, vuốt = chuột, nút = phím / chuột)
+    static var defaultKBM: PadLayout {
+        func key(_ s: String) -> PadAction { .key(KeySpec.parse(s)!) }
+        return PadLayout(buttons: [
+            PadButton(label: "Bắn", action: .mouse(0), x: 0.88, y: 0.58, size: 92),
+            PadButton(label: "Ngắm", action: .mouse(2), x: 0.76, y: 0.70, size: 72),
+            PadButton(label: "Nhảy", action: .key(.space), x: 0.92, y: 0.82, size: 64),
+            PadButton(label: "R", action: key("R"), x: 0.66, y: 0.84, size: 56),
+            PadButton(label: "Ngồi", action: .key(.ctrl), x: 0.40, y: 0.84, size: 56),
+            PadButton(label: "Chạy", action: .key(.shift), x: 0.28, y: 0.48, size: 56),
+            PadButton(label: "E", action: key("E"), x: 0.80, y: 0.40, size: 52),
+            PadButton(label: "F", action: key("F"), x: 0.70, y: 0.52, size: 52),
+            PadButton(label: "Q", action: key("Q"), x: 0.20, y: 0.40, size: 48),
+            PadButton(label: "1", action: key("1"), x: 0.40, y: 0.16, size: 46),
+            PadButton(label: "2", action: key("2"), x: 0.47, y: 0.16, size: 46),
+            PadButton(label: "3", action: key("3"), x: 0.54, y: 0.16, size: 46),
+        ])
     }
 }
 
