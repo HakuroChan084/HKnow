@@ -899,7 +899,7 @@ final class GamingPanelView: UIView {
         add(tile(toggleRow("Giả lập màn hình cảm ứng", symbol: "hand.tap", isOn: WebViewController.touchSpoofEnabled) { on in
             WebViewController.touchSpoofEnabled = on
         }))
-        add(caption("Tắt (mặc định): GFN coi máy là laptop không cảm ứng, bắn / ngắm ổn định. Bật chỉ để thử chạm gốc ở Launcher. Đổi xong phải đóng hẳn app rồi mở lại."))
+        add(caption("Bật (mặc định): laptop Windows có cảm ứng, Launcher chạm gốc ăn. Thử TẮT nếu bắn / ngắm vẫn hỏng (GFN coi máy là laptop không cảm ứng). Đổi xong phải đóng hẳn app rồi mở lại."))
         add(caption("Mỗi chế độ có bố cục nút riêng (chỉnh ở mục Chỉnh nút). Tay cầm: joystick = cần trái, vuốt / gyro = cần phải. Chuột + Phím: joystick = W A S D, vuốt / gyro = chuột."))
 
         // --- CAMERA & GYRO ---

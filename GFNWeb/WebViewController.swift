@@ -745,10 +745,10 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
 
     // MARK: - JavaScript chèn vào trang
 
-    /// Giả lập laptop Windows CÓ màn hình cảm ứng (cho chế độ Launcher chạm gốc). Mặc định TẮT: laptop không cảm ứng
-    /// (như trước) để GFN dùng chuột / tay cầm bình thường khi bắn / ngắm. Đổi xong phải đóng hẳn app rồi mở lại.
+    /// Giả lập laptop Windows CÓ màn hình cảm ứng (cho chế độ Launcher chạm gốc). Mặc định BẬT (người dùng xác nhận
+    /// Launcher / xoay / di chuyển chạy tốt). Tắt để thử nếu bắn / ngắm vẫn hỏng. Đổi xong phải đóng hẳn app rồi mở lại.
     static var touchSpoofEnabled: Bool {
-        get { UserDefaults.standard.bool(forKey: "gfnweb.touchSpoof.v1") }
+        get { UserDefaults.standard.object(forKey: "gfnweb.touchSpoof.v1") as? Bool ?? true }
         set { UserDefaults.standard.set(newValue, forKey: "gfnweb.touchSpoof.v1") }
     }
 
