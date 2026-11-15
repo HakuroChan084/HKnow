@@ -892,11 +892,11 @@ final class GamingPanelView: UIView {
             PadStore.shared.settings.kbmFire = i
             host.commitPad()
         })
-        add(tile(toggleRow("Gửi kèm phím P / O / I", symbol: "keyboard", isOn: s.mouseKeyAlias) { on in
+        add(tile(toggleRow("Gửi kèm phím P / 0 / I", symbol: "keyboard", isOn: s.mouseKeyAlias) { on in
             PadStore.shared.settings.mouseKeyAlias = on
             host.commitPad()
         }))
-        add(caption("Gán phím phụ trong CoD / Battlefield: Bắn = P, Ngắm = O, Chuột giữa = I"))
+        add(caption("Gán phím phụ trong CoD / Battlefield: Bắn = P, Ngắm = 0, Chuột giữa = I"))
         add(tile(toggleRow("Đảo chuột trái / phải", symbol: "arrow.left.arrow.right", isOn: s.swapMouse) { on in
             PadStore.shared.settings.swapMouse = on
             host.commitPad()

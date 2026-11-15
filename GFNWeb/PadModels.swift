@@ -334,8 +334,8 @@ struct PadSettings: Codable {
     var kbmFire = 0
     /// Đảo chuột trái <-> phải (để thử khi game hiểu ngược nút)
     var swapMouse = false
-    /// Chế độ Chuột + Phím: bấm LMB / RMB / MMB ảo thì GỬI KÈM phím P / O / I (game không nhận click giả, nhưng nhận phím:
-    /// vào cài đặt game gán phím phụ Bắn = P, Ngắm = O, Chuột giữa = I)
+    /// Chế độ Chuột + Phím: bấm LMB / RMB / MMB ảo thì GỬI KÈM phím P / 0 / I (game không nhận click giả, nhưng nhận phím:
+    /// vào cài đặt game gán phím phụ Bắn = P, Ngắm = 0, Chuột giữa = I)
     var mouseKeyAlias = true
 
     init() {}
