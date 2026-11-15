@@ -134,6 +134,7 @@ enum PadAction: Codable, Equatable {
     case pad(Int)            // nút tay cầm Xbox ảo (LB, RB, A, B, X, Y, L3, Start, Back, D-Pad...)
     case toggleKeyboard      // bật / tắt bàn phím ảo của iOS
     case toggleHUD           // ẩn / hiện bộ nút (khi ẩn: chạm tự do vào menu game)
+    case fireAim             // Bắn + Ngắm CÙNG LÚC bằng một nút (chuột trái + chuột phải / RT + LT): chơi 1 tay hoặc 3 tay
 
     var title: String {
         switch self {
@@ -143,6 +144,7 @@ enum PadAction: Codable, Equatable {
         case .pad(let i): return "Tay cầm: " + (GamepadButton.names[i]?.0 ?? "Nút \(i)")
         case .toggleKeyboard: return "Bật/Tắt bàn phím ảo"
         case .toggleHUD: return "Ẩn/Hiện HUD"
+        case .fireAim: return "Bắn + Ngắm (cùng lúc)"
         }
     }
 
@@ -154,6 +156,7 @@ enum PadAction: Codable, Equatable {
         case .pad(let i): return GamepadButton.names[i]?.1 ?? "\(i)"
         case .toggleKeyboard: return "⌨︎"
         case .toggleHUD: return "HUD"
+        case .fireAim: return "Bắn+Ngắm"
         }
     }
 
@@ -162,6 +165,7 @@ enum PadAction: Codable, Equatable {
         switch self {
         case .mouse(let b): return b == 2
         case .pad(let i): return i == GamepadButton.lt
+        case .fireAim: return true
         default: return false
         }
     }
@@ -170,7 +174,7 @@ enum PadAction: Codable, Equatable {
     /// (Bắn, Ngắm, R3, LB / RB / LT / RT, phím G ném lựu đạn).
     var defaultAllowDragLook: Bool {
         switch self {
-        case .mouse: return true
+        case .mouse, .fireAim: return true
         case .pad(let i): return [4, 5, 6, 7].contains(i)
         case .key(let k): return k.code == "KeyG"
         default: return false
@@ -203,6 +207,7 @@ extension PadAction {
         return [
             ActionGroup(title: "Tay cầm (Xbox)", items: [
                 padItem(7, "RT", "Bắn"), padItem(6, "LT", "Ngắm"),
+                ActionItem(label: "Bắn+Ngắm", detail: "RT + LT cùng lúc", action: .fireAim),
                 padItem(4, "LB"), padItem(5, "RB"),
                 padItem(0, "A"), padItem(1, "B"), padItem(2, "X"), padItem(3, "Y"),
                 padItem(10, "L3"), padItem(11, "R3"), padItem(9, "Start"), padItem(8, "Back"),
@@ -212,6 +217,7 @@ extension PadAction {
                 ActionItem(label: "Chuột trái", detail: "Bắn", action: .mouse(0)),
                 ActionItem(label: "Chuột phải", detail: "Ngắm", action: .mouse(2)),
                 ActionItem(label: "Chuột giữa", detail: nil, action: .mouse(1)),
+                ActionItem(label: "Bắn+Ngắm", detail: "Trái + phải cùng lúc", action: .fireAim),
             ]),
             ActionGroup(title: "Phím bổ trợ (Trái / Phải)", items: KeySpec.modifiers.map { keyItem($0) }),
             ActionGroup(title: "Phím điều khiển", items: KeySpec.controls.map { keyItem($0) }),
@@ -346,6 +352,7 @@ struct PadSettings: Codable {
         case kbmFire, swapMouse, mouseKeyAlias
         case splitV2            // đã tách riêng nút chuột và nút tay cầm
         case fireEnsured        // đã đảm bảo bố cục Chuột + Phím có nút Chuột trái (bắn)
+        case comboEnsured       // đã thêm nút Bắn + Ngắm vào bố cục Chuột + Phím
         case mouseStyle = "mouseStyleV2"      // khóa mới: bỏ lựa chọn cũ (Con trỏ ảo) một lần để dùng mặc định Chạm gốc
     }
 
@@ -375,6 +382,13 @@ struct PadSettings: Codable {
             }
             if !hasFire {
                 kbmLayout.buttons.append(PadButton(label: "Bắn", action: .mouse(0), x: 0.88, y: 0.62, size: 76))
+            }
+        }
+        if !(try c.decodeIfPresent(Bool.self, forKey: .comboEnsured) ?? false) {
+            // Thêm 1 lần nút Bắn + Ngắm (bắn + ADS cùng lúc) vào bố cục Chuột + Phím đã có
+            let has = kbmLayout.buttons.contains { $0.action == .fireAim }
+            if !has {
+                kbmLayout.buttons.append(PadButton(label: "Bắn+Ngắm", action: .fireAim, x: 0.74, y: 0.58, size: 64))
             }
         }
         if !(try c.decodeIfPresent(Bool.self, forKey: .splitV2) ?? false) {
@@ -407,6 +421,7 @@ struct PadSettings: Codable {
         try c.encode(mouseKeyAlias, forKey: .mouseKeyAlias)
         try c.encode(true, forKey: .splitV2)
         try c.encode(true, forKey: .fireEnsured)
+        try c.encode(true, forKey: .comboEnsured)
         try c.encode(mouseStyle, forKey: .mouseStyle)
     }
 }
@@ -443,6 +458,7 @@ struct PadLayout: Codable {
             PadButton(label: "E", action: key("E"), x: 0.80, y: 0.40, size: 52),
             PadButton(label: "F", action: key("F"), x: 0.70, y: 0.52, size: 52),
             PadButton(label: "Q", action: key("Q"), x: 0.20, y: 0.40, size: 48),
+            PadButton(label: "Bắn+Ngắm", action: .fireAim, x: 0.74, y: 0.58, size: 64),
             PadButton(label: "1", action: key("1"), x: 0.40, y: 0.16, size: 46),
             PadButton(label: "2", action: key("2"), x: 0.47, y: 0.16, size: 46),
             PadButton(label: "3", action: key("3"), x: 0.54, y: 0.16, size: 46),

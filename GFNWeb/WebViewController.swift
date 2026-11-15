@@ -416,6 +416,10 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
             // Tùy chọn "Đảo chuột trái / phải" (chỉ đảo trái <-> phải, giữ nguyên chuột giữa)
             let swapped = (PadStore.shared.settings.swapMouse && button != 1) ? 2 - button : button
             sendButton(swapped, down)
+        case .fireAim:
+            // Bắn + Ngắm cùng lúc: chuột trái + chuột phải (chế độ Chuột + Phím: kèm phím P + 0; chế độ Tay cầm: RT + LT)
+            sendButton(0, down)
+            sendButton(2, down)
         case .key(let spec):
             sendKey(spec, down)
         case .releaseLock:
