@@ -128,7 +128,7 @@ enum GamepadButton {
 // MARK: - Hành động của một nút
 
 enum PadAction: Codable, Equatable {
-    case mouse(Int)          // 0 = trái (RT), 1 = giữa (R3), 2 = phải (LT)
+    case mouse(Int)          // CHUỘT thật: 0 = trái, 1 = giữa, 2 = phải (chỉ dùng cho chế độ Chuột + Phím)
     case key(KeySpec)
     case releaseLock         // thả chuột để chạm vào menu của GFN
     case pad(Int)            // nút tay cầm Xbox ảo (LB, RB, A, B, X, Y, L3, Start, Back, D-Pad...)
@@ -137,7 +137,7 @@ enum PadAction: Codable, Equatable {
 
     var title: String {
         switch self {
-        case .mouse(let b): return b == 0 ? "Bắn (RT / Chuột trái)" : (b == 2 ? "Ngắm (LT / Chuột phải)" : "R3 (Chuột giữa)")
+        case .mouse(let b): return b == 0 ? "Chuột trái" : (b == 2 ? "Chuột phải" : "Chuột giữa")
         case .key(let k): return "Phím " + k.display
         case .releaseLock: return "Thả chuột (mở menu)"
         case .pad(let i): return "Tay cầm: " + (GamepadButton.names[i]?.0 ?? "Nút \(i)")
@@ -148,7 +148,7 @@ enum PadAction: Codable, Equatable {
 
     var defaultLabel: String {
         switch self {
-        case .mouse(let b): return b == 0 ? "Bắn" : (b == 2 ? "Ngắm" : "R3")
+        case .mouse(let b): return b == 0 ? "LMB" : (b == 2 ? "RMB" : "MMB")
         case .key(let k): return k.display
         case .releaseLock: return "Menu"
         case .pad(let i): return GamepadButton.names[i]?.1 ?? "\(i)"
@@ -201,14 +201,17 @@ extension PadAction {
         }
 
         return [
-            ActionGroup(title: "Tay cầm / Bắn", items: [
-                ActionItem(label: "Bắn", detail: "RT / Chuột trái", action: .mouse(0)),
-                ActionItem(label: "Ngắm", detail: "LT / Chuột phải", action: .mouse(2)),
-                ActionItem(label: "R3", detail: "Chuột giữa", action: .mouse(1)),
+            ActionGroup(title: "Tay cầm (Xbox)", items: [
+                padItem(7, "RT", "Bắn"), padItem(6, "LT", "Ngắm"),
                 padItem(4, "LB"), padItem(5, "RB"),
                 padItem(0, "A"), padItem(1, "B"), padItem(2, "X"), padItem(3, "Y"),
-                padItem(10, "L3"), padItem(9, "Start"), padItem(8, "Back"),
+                padItem(10, "L3"), padItem(11, "R3"), padItem(9, "Start"), padItem(8, "Back"),
                 padItem(12, "D-Pad ↑"), padItem(13, "D-Pad ↓"), padItem(14, "D-Pad ←"), padItem(15, "D-Pad →"),
+            ]),
+            ActionGroup(title: "Chuột (chế độ Chuột + Phím)", items: [
+                ActionItem(label: "Chuột trái", detail: "Bắn", action: .mouse(0)),
+                ActionItem(label: "Chuột phải", detail: "Ngắm", action: .mouse(2)),
+                ActionItem(label: "Chuột giữa", detail: nil, action: .mouse(1)),
             ]),
             ActionGroup(title: "Phím bổ trợ (Trái / Phải)", items: KeySpec.modifiers.map { keyItem($0) }),
             ActionGroup(title: "Phím điều khiển", items: KeySpec.controls.map { keyItem($0) }),
@@ -332,6 +335,7 @@ struct PadSettings: Codable {
         case enabled, opacity, lookSensitivity, gyroMode, gyroSensitivity, gyroInvertX, gyroInvertY
         case joyX, joyY, joySize, buttons       // bố cục Tay cầm (giữ khóa cũ để đọc được dữ liệu đã lưu)
         case kbmLayout
+        case splitV2            // đã tách riêng nút chuột và nút tay cầm
         case mouseStyle = "mouseStyleV2"      // khóa mới: bỏ lựa chọn cũ (Con trỏ ảo) một lần để dùng mặc định Chạm gốc
     }
 
@@ -351,6 +355,14 @@ struct PadSettings: Codable {
         padLayout.joySize = try c.decodeIfPresent(CGFloat.self, forKey: .joySize) ?? padLayout.joySize
         padLayout.buttons = try c.decodeIfPresent([PadButton].self, forKey: .buttons) ?? padLayout.buttons
         kbmLayout = try c.decodeIfPresent(PadLayout.self, forKey: .kbmLayout) ?? kbmLayout
+        if !(try c.decodeIfPresent(Bool.self, forKey: .splitV2) ?? false) {
+            // Dữ liệu cũ: nút "Bắn / Ngắm / R3" kiểu chuột trong bố cục Tay cầm -> đổi thành RT / LT / R3 của tay cầm
+            padLayout.buttons = padLayout.buttons.map { b in
+                var b = b
+                if case .mouse(let n) = b.action { b.action = .pad(n == 0 ? 7 : (n == 2 ? 6 : 11)) }
+                return b
+            }
+        }
         mouseStyle = try c.decodeIfPresent(MouseTouchStyle.self, forKey: .mouseStyle) ?? mouseStyle
     }
 
@@ -368,6 +380,7 @@ struct PadSettings: Codable {
         try c.encode(padLayout.joySize, forKey: .joySize)
         try c.encode(padLayout.buttons, forKey: .buttons)
         try c.encode(kbmLayout, forKey: .kbmLayout)
+        try c.encode(true, forKey: .splitV2)
         try c.encode(mouseStyle, forKey: .mouseStyle)
     }
 }
@@ -382,12 +395,12 @@ struct PadLayout: Codable {
     /// Bố cục Tay cầm (nút ảo Xbox: Bắn = RT, Ngắm = LT...)
     static var defaultPad: PadLayout {
         PadLayout(buttons: [
-            PadButton(label: "Bắn", action: .mouse(0), x: 0.88, y: 0.58, size: 92),
-            PadButton(label: "Ngắm", action: .mouse(2), x: 0.76, y: 0.70, size: 72),
-            PadButton(label: "Nhảy", action: .key(.space), x: 0.92, y: 0.82, size: 64),
-            PadButton(label: "R", action: .key(KeySpec.parse("R")!), x: 0.66, y: 0.84, size: 56),
-            PadButton(label: "Ngồi", action: .key(.ctrl), x: 0.40, y: 0.84, size: 56),
-            PadButton(label: "Chạy", action: .key(.shift), x: 0.28, y: 0.48, size: 56),
+            PadButton(label: "Bắn", action: .pad(7), x: 0.88, y: 0.58, size: 92),
+            PadButton(label: "Ngắm", action: .pad(6), x: 0.76, y: 0.70, size: 72),
+            PadButton(label: "Nhảy", action: .pad(0), x: 0.92, y: 0.82, size: 64),
+            PadButton(label: "Nạp", action: .pad(2), x: 0.66, y: 0.84, size: 56),
+            PadButton(label: "Ngồi", action: .pad(1), x: 0.40, y: 0.84, size: 56),
+            PadButton(label: "Chạy", action: .pad(10), x: 0.28, y: 0.48, size: 56),
         ])
     }
 
