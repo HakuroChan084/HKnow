@@ -174,8 +174,13 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
 
     /// Bộ điều khiển ảo đang bật và dùng tay cầm: nút/joystick/vuốt/gyro chạy NGAY, không cần đợi game khóa chuột
     private var padLive: Bool {
-        PadStore.shared.settings.enabled && inputMode.usesPad && !padEditing && !overlay.hudHidden
+        PadStore.shared.settings.enabled && padPath && !padEditing && !overlay.hudHidden
     }
+
+    /// Chuột + Phím nhưng hợp nhất vào tay cầm Xbox ảo (mặc định): nút chuột / phím trên HUD -> nút tay cầm
+    private var padOnlyKBM: Bool { inputMode == .keyboardMouse && PadStore.shared.settings.kbmFire == 0 }
+    /// Có dùng đường tay cầm ảo không (chế độ Tay cầm, hoặc Chuột + Phím hợp nhất)
+    private var padPath: Bool { inputMode.usesPad || padOnlyKBM }
 
     /// Có được gửi input vào trang không: đã khóa chuột (game đang bắt chuột) HOẶC tay cầm ảo đang hoạt động.
     /// Chế độ Chuột / Launcher: luôn tắt (nút ảo, vuốt xoay camera và gyro đều ngừng).
@@ -331,11 +336,12 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
         let launcher = (controlMode == .mouse)
         // Chuột + Phím: cắm thêm tay cầm ảo CHỈ để mang RT / LT (bắn / ngắm) khi bấm Chuột trái / phải,
         // vì game có thể không nhận click chuột tổng hợp nhưng luôn nhận tay cầm (trigOnly).
-        let fireMode = PadStore.shared.settings.kbmFire      // 0 = cả hai, 1 = chỉ click chuột, 2 = chỉ RT / LT
-        let trigOnly = (m == .keyboardMouse) && !launcher && fireMode != 1
-        let clicks = fireMode != 2
+        let fireMode = PadStore.shared.settings.kbmFire      // 0 = hợp nhất tay cầm, 1 = chuột + RT/LT, 2 = chỉ chuột
+        let unified = padOnlyKBM
+        let trigOnly = (m == .keyboardMouse) && !launcher && fireMode == 1
+        let clicks = fireMode != 0
         wv.evaluateJavaScript(
-            "window.__gfnMouse&&window.__gfnMouse.config({pad:\(m.usesPad || launcher || trigOnly),kbm:\(m.usesKBM && !launcher),launcher:\(launcher),trigOnly:\(trigOnly),clicks:\(clicks),keyAlias:\(PadStore.shared.settings.mouseKeyAlias)})"
+            "window.__gfnMouse&&window.__gfnMouse.config({pad:\(m.usesPad || launcher || trigOnly || unified),kbm:\(m.usesKBM && !launcher && !unified),launcher:\(launcher),trigOnly:\(trigOnly),clicks:\(clicks),keyAlias:\(PadStore.shared.settings.mouseKeyAlias)})"
         )
     }
 
@@ -534,11 +540,11 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
 
         var calls: [String] = []
         // Kênh chuột tổng hợp: gửi độ dời thô (vuốt / gyro) theo từng khung hình
-        if mode.usesKBM, dx != 0 || dy != 0 {
+        if mode.usesKBM, !padOnlyKBM, dx != 0 || dy != 0 {
             calls.append(String(format: "m.move(%.2f,%.2f)", dx, dy))
         }
         // Kênh tay cầm: đổi độ dời thành cần gạt phải (đã làm mượt)
-        if mode.usesPad, let call = stickCall(dx: dx, dy: dy, dt: dt) {
+        if padPath, let call = stickCall(dx: dx, dy: dy, dt: dt) {
             calls.append(call)
         }
         guard !calls.isEmpty else { return }
@@ -582,7 +588,7 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
 
     /// Joystick đi (analog) -> cần gạt trái (axes[0], axes[1]). x, y trong [-1, 1], y dương = xuống.
     private func sendLeft(_ x: CGFloat, _ y: CGFloat) {
-        guard inputMode.usesPad else { sendWASD(x, y); return }
+        guard padPath else { sendWASD(x, y); return }
         var lx = x, ly = y
         if !inputLive { lx = 0; ly = 0 }
         let mag = hypot(lx, ly)
@@ -623,7 +629,7 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
     /// Chế độ Chuột + Phím chơi 100% cảm ứng: chưa có khóa chuột (không ai bấm vào video) thì tự xin khóa cho game
     /// ngay khi ngón tay chạm vào bộ điều khiển. Chỉ làm khi đang ở Chiến đấu, HUD bật, trang chưa khóa.
     private func engageIfNeeded() {
-        guard inputMode == .keyboardMouse, controlMode == .hud, !isMouseCaptured,
+        guard inputMode == .keyboardMouse, !padOnlyKBM, controlMode == .hud, !isMouseCaptured,
               PadStore.shared.settings.enabled, !padEditing, !overlay.hudHidden else { return }
         let now = CACurrentMediaTime()
         guard now - lastEngage > 1.0 else { return }
@@ -971,8 +977,9 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
         Space: 0,
         ControlLeft: 1, ControlRight: 1, KeyC: 1,
         KeyR: 2, KeyE: 2, KeyF: 2,
-        KeyQ: 3, KeyX: 3, Digit1: 3, Digit2: 3, Digit3: 3, Digit4: 3, Digit5: 3,
-        AltLeft: 4, AltRight: 4, KeyZ: 4,
+        KeyX: 3, Digit5: 3,
+        Digit1: [3, 12], Digit2: [3, 13], Digit3: [3, 14], Digit4: [3, 15],     // Y + D-Pad (lên / xuống / trái / phải)
+        KeyQ: 4, AltLeft: 4, AltRight: 4, KeyZ: 4,
         KeyG: 5,
         Tab: 8,
         Escape: 9, Enter: 9,
@@ -1006,13 +1013,14 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
 
       // Tính lại toàn bộ nút + cần gạt từ trạng thái phím/chuột/joystick
       function recomputePad() {
-        var b = [], i, k, code;
+        var b = [], i, k, q, code;
         for (i = 0; i < BTN_COUNT; i++) b.push(0);
         var dx = 0, dy = 0, keys = Object.keys(downKeys);
         for (k = 0; k < keys.length; k++) {
           code = keys[k];
-          i = KEY_BTN[code];
-          if (i !== undefined) b[i] = 1;
+          var kb = KEY_BTN[code];
+          if (typeof kb === 'number') b[kb] = 1;
+          else if (kb) { for (q = 0; q < kb.length; q++) b[kb[q]] = 1; }
           if (code === 'KeyW') dy -= 1;
           else if (code === 'KeyS') dy += 1;
           else if (code === 'KeyA') dx -= 1;

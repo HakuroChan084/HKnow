@@ -216,8 +216,9 @@
     Space: 0,
     ControlLeft: 1, ControlRight: 1, KeyC: 1,
     KeyR: 2, KeyE: 2, KeyF: 2,
-    KeyQ: 3, KeyX: 3, Digit1: 3, Digit2: 3, Digit3: 3, Digit4: 3, Digit5: 3,
-    AltLeft: 4, AltRight: 4, KeyZ: 4,
+    KeyX: 3, Digit5: 3,
+    Digit1: [3, 12], Digit2: [3, 13], Digit3: [3, 14], Digit4: [3, 15],     // Y + D-Pad (lên / xuống / trái / phải)
+    KeyQ: 4, AltLeft: 4, AltRight: 4, KeyZ: 4,
     KeyG: 5,
     Tab: 8,
     Escape: 9, Enter: 9,
@@ -251,13 +252,14 @@
 
   // Tính lại toàn bộ nút + cần gạt từ trạng thái phím/chuột/joystick
   function recomputePad() {
-    var b = [], i, k, code;
+    var b = [], i, k, q, code;
     for (i = 0; i < BTN_COUNT; i++) b.push(0);
     var dx = 0, dy = 0, keys = Object.keys(downKeys);
     for (k = 0; k < keys.length; k++) {
       code = keys[k];
-      i = KEY_BTN[code];
-      if (i !== undefined) b[i] = 1;
+      var kb = KEY_BTN[code];
+      if (typeof kb === 'number') b[kb] = 1;
+      else if (kb) { for (q = 0; q < kb.length; q++) b[kb[q]] = 1; }
       if (code === 'KeyW') dy -= 1;
       else if (code === 'KeyS') dy += 1;
       else if (code === 'KeyA') dx -= 1;
