@@ -126,8 +126,8 @@ extension WebViewController {
             x: min(max(point.x / overlay.bounds.width, 0.03), 0.97),
             y: min(max(point.y / overlay.bounds.height, 0.05), 0.95)
         )
-        let sheet = UIAlertController(title: "Thêm nút tại đây", message: nil, preferredStyle: .actionSheet)
-        sheet.addAction(UIAlertAction(title: "Chọn hành động / phím…", style: .default) { [weak self] _ in
+        let sheet = UIAlertController(title: L("Thêm nút tại đây"), message: nil, preferredStyle: .actionSheet)
+        sheet.addAction(UIAlertAction(title: L("Chọn hành động / phím…"), style: .default) { [weak self] _ in
             self?.addButton(at: norm, source: self?.overlay ?? UIView())
         })
         for action in [PadAction.mouse(0), .mouse(2), .key(.space), .toggleKeyboard, .toggleHUD] {
@@ -135,7 +135,7 @@ extension WebViewController {
                 self?.insertButton(action, at: norm)
             })
         }
-        sheet.addAction(UIAlertAction(title: "Hủy", style: .cancel))
+        sheet.addAction(UIAlertAction(title: L("Hủy"), style: .cancel))
         if let pop = sheet.popoverPresentationController {
             pop.sourceView = overlay
             pop.sourceRect = CGRect(x: point.x, y: point.y, width: 1, height: 1)
@@ -144,7 +144,7 @@ extension WebViewController {
     }
 
     private func addButton(at norm: CGPoint, source: UIView) {
-        presentActionChooser(title: "Chọn hành động cho nút mới", source: source) { [weak self] action in
+        presentActionChooser(title: L("Chọn hành động cho nút mới"), source: source) { [weak self] action in
             self?.insertButton(action, at: norm)
         }
     }
@@ -175,18 +175,18 @@ extension WebViewController {
 
     private func askCustomKey(_ completion: @escaping (PadAction) -> Void) {
         let alert = UIAlertController(
-            title: "Phím khác",
-            message: "Gõ 1 phím: chữ cái, số, F1–F12, space, shift, ctrl, alt, tab, esc, up, down, left, right",
+            title: L("Phím khác"),
+            message: L("Gõ 1 phím: chữ cái, số, F1–F12, space, shift, ctrl, alt, tab, esc, up, down, left, right"),
             preferredStyle: .alert
         )
-        alert.addTextField { $0.autocapitalizationType = .none; $0.placeholder = "ví dụ: t" }
-        alert.addAction(UIAlertAction(title: "Hủy", style: .cancel))
+        alert.addTextField { $0.autocapitalizationType = .none; $0.placeholder = L("ví dụ: t") }
+        alert.addAction(UIAlertAction(title: L("Hủy"), style: .cancel))
         alert.addAction(UIAlertAction(title: "OK", style: .default) { [weak self, weak alert] _ in
             let text = alert?.textFields?.first?.text ?? ""
             if let spec = KeySpec.parse(text) {
                 completion(.key(spec))
             } else {
-                let err = UIAlertController(title: "Không nhận ra phím này", message: nil, preferredStyle: .alert)
+                let err = UIAlertController(title: L("Không nhận ra phím này"), message: nil, preferredStyle: .alert)
                 err.addAction(UIAlertAction(title: "OK", style: .default))
                 self?.present(err, animated: true)
             }
@@ -206,34 +206,34 @@ extension WebViewController {
     func presentButtonEditor(_ id: UUID, from source: UIView) {
         guard let b = PadStore.shared.settings.buttons.first(where: { $0.id == id }) else { return }
         let sheet = UIAlertController(
-            title: "\(b.label) — \(b.action.title)",
-            message: "Cỡ \(Int(b.size)) pt • dùng nút + / − cạnh nút để phóng to / thu nhỏ",
+            title: "\(L(b.label)) — \(b.action.title)",
+            message: String(format: L("Cỡ %d pt • dùng nút + / − cạnh nút để phóng to / thu nhỏ"), Int(b.size)),
             preferredStyle: .actionSheet
         )
 
         // Giữ nút + kéo ngón tay = vừa giữ lệnh vừa xoay camera (ghìm tâm / xoay ngắm bằng ngón đang giữ nút)
         let dragTitle = b.allowDragLook
-            ? "✓ Cho phép vuốt xoay camera khi giữ nút"
-            : "Cho phép vuốt xoay camera khi giữ nút (đang tắt)"
+            ? L("✓ Cho phép vuốt xoay camera khi giữ nút")
+            : L("Cho phép vuốt xoay camera khi giữ nút (đang tắt)")
         sheet.addAction(UIAlertAction(title: dragTitle, style: .default) { [weak self] _ in
             self?.mutateButton(id) { $0.allowDragLook.toggle() }
         })
-        sheet.addAction(UIAlertAction(title: "Đổi hành động…", style: .default) { [weak self] _ in
-            self?.presentActionChooser(title: "Hành động mới", source: source) { action in
+        sheet.addAction(UIAlertAction(title: L("Đổi hành động…"), style: .default) { [weak self] _ in
+            self?.presentActionChooser(title: L("Hành động mới"), source: source) { action in
                 self?.mutateButton(id) { $0.action = action; $0.label = action.defaultLabel }
             }
         })
-        sheet.addAction(UIAlertAction(title: "Đổi tên nhãn…", style: .default) { [weak self] _ in
-            let alert = UIAlertController(title: "Tên nhãn", message: nil, preferredStyle: .alert)
+        sheet.addAction(UIAlertAction(title: L("Đổi tên nhãn…"), style: .default) { [weak self] _ in
+            let alert = UIAlertController(title: L("Tên nhãn"), message: nil, preferredStyle: .alert)
             alert.addTextField { $0.text = b.label }
-            alert.addAction(UIAlertAction(title: "Hủy", style: .cancel))
+            alert.addAction(UIAlertAction(title: L("Hủy"), style: .cancel))
             alert.addAction(UIAlertAction(title: "OK", style: .default) { [weak alert] _ in
                 let text = alert?.textFields?.first?.text ?? ""
                 self?.mutateButton(id) { $0.label = text }
             })
             self?.present(alert, animated: true)
         })
-        sheet.addAction(UIAlertAction(title: "Nhân bản", style: .default) { [weak self] _ in
+        sheet.addAction(UIAlertAction(title: L("Nhân bản"), style: .default) { [weak self] _ in
             guard let self, let src = PadStore.shared.settings.buttons.first(where: { $0.id == id }) else { return }
             var copy = src
             copy.id = UUID()
@@ -243,12 +243,12 @@ extension WebViewController {
             PadStore.shared.save()
             self.overlay.reload()
         })
-        sheet.addAction(UIAlertAction(title: "Xóa nút", style: .destructive) { [weak self] _ in
+        sheet.addAction(UIAlertAction(title: L("Xóa nút"), style: .destructive) { [weak self] _ in
             PadStore.shared.settings.buttons.removeAll { $0.id == id }
             PadStore.shared.save()
             self?.overlay.reload()
         })
-        sheet.addAction(UIAlertAction(title: "Xong", style: .cancel))
+        sheet.addAction(UIAlertAction(title: L("Xong"), style: .cancel))
         if let pop = sheet.popoverPresentationController {
             pop.sourceView = source
             pop.sourceRect = source.bounds
@@ -259,18 +259,18 @@ extension WebViewController {
     func presentJoystickEditor(from source: UIView) {
         let size = Int(PadStore.shared.settings.joySize)
         let sheet = UIAlertController(
-            title: "Joystick đi (W A S D)",
-            message: "Cỡ \(size) pt • dùng nút + / − cạnh joystick để phóng to / thu nhỏ",
+            title: L("Joystick đi (W A S D)"),
+            message: String(format: L("Cỡ %d pt • dùng nút + / − cạnh joystick để phóng to / thu nhỏ"), Int(size)),
             preferredStyle: .actionSheet
         )
-        sheet.addAction(UIAlertAction(title: "Đặt lại vị trí & cỡ mặc định", style: .default) { [weak self] _ in
+        sheet.addAction(UIAlertAction(title: L("Đặt lại vị trí & cỡ mặc định"), style: .default) { [weak self] _ in
             let d = PadSettings()
             PadStore.shared.settings.joyX = d.joyX
             PadStore.shared.settings.joyY = d.joyY
             PadStore.shared.settings.joySize = d.joySize
             self?.commitPad()
         })
-        sheet.addAction(UIAlertAction(title: "Xong", style: .cancel))
+        sheet.addAction(UIAlertAction(title: L("Xong"), style: .cancel))
         if let pop = sheet.popoverPresentationController {
             pop.sourceView = source
             pop.sourceRect = source.bounds
@@ -328,8 +328,8 @@ final class ActionPickerViewController: UIViewController, UICollectionViewDataSo
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .systemBackground
-        navigationItem.leftBarButtonItem = UIBarButtonItem(title: "Hủy", style: .plain, target: self, action: #selector(cancel))
-        navigationItem.rightBarButtonItem = UIBarButtonItem(title: "Phím khác…", style: .plain, target: self, action: #selector(custom))
+        navigationItem.leftBarButtonItem = UIBarButtonItem(title: L("Hủy"), style: .plain, target: self, action: #selector(cancel))
+        navigationItem.rightBarButtonItem = UIBarButtonItem(title: L("Phím khác…"), style: .plain, target: self, action: #selector(custom))
 
         let layout = UICollectionViewCompositionalLayout { _, _ in
             let item = NSCollectionLayoutItem(layoutSize: .init(widthDimension: .absolute(78), heightDimension: .absolute(56)))
@@ -582,7 +582,7 @@ final class TopBarView: UIView {
         divider.backgroundColor = UIColor.white.withAlphaComponent(0.2)
 
         var doneCfg = UIButton.Configuration.filled()
-        doneCfg.title = "Xong"
+        doneCfg.title = L("Xong")
         doneCfg.baseBackgroundColor = Neon.accent
         doneCfg.baseForegroundColor = .black
         doneCfg.cornerStyle = .capsule
@@ -751,7 +751,7 @@ final class GamingPanelView: UIView {
         title.attributedText = titleText
         let subtitle = UILabel()
         subtitle.attributedText = NSAttributedString(
-            string: "BẢNG ĐIỀU KHIỂN",
+            string: L("BẢNG ĐIỀU KHIỂN"),
             attributes: [.font: UIFont.systemFont(ofSize: 10, weight: .heavy), .foregroundColor: Neon.sub, .kern: 2.0]
         )
         let titleStack = UIStackView(arrangedSubviews: [title, subtitle])
@@ -857,89 +857,101 @@ final class GamingPanelView: UIView {
         let s = PadStore.shared.settings
         let host = self.host
 
+        // --- NGÔN NGỮ / LANGUAGE / ЯЗЫК ---
+        addSection("LANGUAGE · NGÔN NGỮ · ЯЗЫК")
+        let langs = AppLang.allCases
+        add(segmented(langs.map { $0.nativeName }, selected: langs.firstIndex(of: AppLang.current) ?? 0) { i in
+            guard langs.indices.contains(i), langs[i] != AppLang.current else { return }
+            AppLang.current = langs[i]
+            // Dựng lại bảng để mọi chữ đổi sang ngôn ngữ mới
+            host.dismissSettingsPanel()
+            host.presentSettingsPanel()
+            host.refreshMenu()
+        })
+
         // --- CHẾ ĐỘ ---
-        addSection("CHẾ ĐỘ")
-        let modes = segmented(["Chiến đấu", "Chuột / Launcher"], selected: host.controlMode == .hud ? 0 : 1) { i in
+        addSection(L("CHẾ ĐỘ"))
+        let modes = segmented([L("Chiến đấu"), L("Chuột / Launcher")], selected: host.controlMode == .hud ? 0 : 1) { i in
             host.setControlMode(i == 0 ? .hud : .mouse)
         }
         modeSegment = modes
         add(modes)
-        add(caption("Chiến đấu: hiện nút ảo, vùng trống để vuốt xoay camera. Chuột / Launcher: ẩn nút, chạm thẳng vào màn hình game để bấm Start / đăng nhập trong Steam / Epic (tay cầm ảo vẫn cắm)."))
-        add(caption("Kiểu chạm ở chế độ Chuột"))
-        add(segmented(["Con trỏ ảo", "Chạm gốc"], selected: s.mouseStyle == .virtualCursor ? 0 : 1) { i in
+        add(caption(L("Chiến đấu: hiện nút ảo, vùng trống để vuốt xoay camera. Chuột / Launcher: ẩn nút, chạm thẳng vào màn hình game để bấm Start / đăng nhập trong Steam / Epic (tay cầm ảo vẫn cắm).")))
+        add(caption(L("Kiểu chạm ở chế độ Chuột")))
+        add(segmented([L("Con trỏ ảo"), L("Chạm gốc")], selected: s.mouseStyle == .virtualCursor ? 0 : 1) { i in
             PadStore.shared.settings.mouseStyle = (i == 0) ? .virtualCursor : .native
             host.commitPad()
         })
 
         // --- ĐIỀU KHIỂN ---
-        addSection("ĐIỀU KHIỂN")
-        add(tile(toggleRow("Bộ điều khiển ảo", symbol: "gamecontroller.fill", isOn: s.enabled) { on in
+        addSection(L("ĐIỀU KHIỂN"))
+        add(tile(toggleRow(L("Bộ điều khiển ảo"), symbol: "gamecontroller.fill", isOn: s.enabled) { on in
             PadStore.shared.settings.enabled = on
             host.commitPad()
         }))
-        add(tile(toggleRow("Bàn phím ảo iOS", symbol: "keyboard", isOn: host.keyField.isFirstResponder) { _ in
+        add(tile(toggleRow(L("Bàn phím ảo iOS"), symbol: "keyboard", isOn: host.keyField.isFirstResponder) { _ in
             host.toggleKeyboard()
         }))
-        add(tile(toggleRow("Ẩn HUD (chạm tự do menu game)", symbol: "eye.slash", isOn: host.overlay.hudHidden) { _ in
+        add(tile(toggleRow(L("Ẩn HUD (chạm tự do menu game)"), symbol: "eye.slash", isOn: host.overlay.hudHidden) { _ in
             host.perform(.toggleHUD, down: true)
         }))
-        add(caption("Chế độ nhập liệu"))
+        add(caption(L("Chế độ nhập liệu")))
         add(segmented([InputMode.gamepad, .keyboardMouse].map { $0.shortTitle }, selected: host.inputMode == .keyboardMouse ? 1 : 0) { i in
             host.inputMode = (i == 1) ? .keyboardMouse : .gamepad
         })
-        add(caption("Cách bắn ở chế độ Chuột + Phím (thử nếu không bắn được)"))
-        add(segmented(["Chuột + RT/LT", "Chỉ chuột", "Chỉ RT/LT"], selected: min(max(s.kbmFire, 0), 2)) { i in
+        add(caption(L("Cách bắn ở chế độ Chuột + Phím (thử nếu không bắn được)")))
+        add(segmented([L("Chuột + RT/LT"), L("Chỉ chuột"), L("Chỉ RT/LT")], selected: min(max(s.kbmFire, 0), 2)) { i in
             PadStore.shared.settings.kbmFire = i
             host.commitPad()
         })
-        add(tile(toggleRow("Gửi kèm phím P / 0 / I", symbol: "keyboard", isOn: s.mouseKeyAlias) { on in
+        add(tile(toggleRow(L("Gửi kèm phím P / 0 / I"), symbol: "keyboard", isOn: s.mouseKeyAlias) { on in
             PadStore.shared.settings.mouseKeyAlias = on
             host.commitPad()
         }))
-        add(caption("Gán phím phụ trong CoD / Battlefield: Bắn = P, Ngắm = 0, Chuột giữa = I"))
-        add(tile(toggleRow("Đảo chuột trái / phải", symbol: "arrow.left.arrow.right", isOn: s.swapMouse) { on in
+        add(caption(L("Gán phím phụ trong CoD / Battlefield: Bắn = P, Ngắm = 0, Chuột giữa = I")))
+        add(tile(toggleRow(L("Đảo chuột trái / phải"), symbol: "arrow.left.arrow.right", isOn: s.swapMouse) { on in
             PadStore.shared.settings.swapMouse = on
             host.commitPad()
         }))
-        add(tile(toggleRow("Giả lập màn hình cảm ứng", symbol: "hand.tap", isOn: WebViewController.touchSpoofEnabled) { on in
+        add(tile(toggleRow(L("Giả lập màn hình cảm ứng"), symbol: "hand.tap", isOn: WebViewController.touchSpoofEnabled) { on in
             WebViewController.touchSpoofEnabled = on
         }))
-        add(caption("Bật (mặc định): laptop Windows có cảm ứng, Launcher chạm gốc ăn. Thử TẮT nếu bắn / ngắm vẫn hỏng (GFN coi máy là laptop không cảm ứng). Đổi xong phải đóng hẳn app rồi mở lại."))
-        add(caption("Mỗi chế độ có bố cục nút riêng (chỉnh ở mục Chỉnh nút). Tay cầm: joystick = cần trái, vuốt / gyro = cần phải. Chuột + Phím: joystick = W A S D, vuốt / gyro = chuột."))
+        add(caption(L("Bật (mặc định): laptop Windows có cảm ứng, Launcher chạm gốc ăn. Thử TẮT nếu bắn / ngắm vẫn hỏng (GFN coi máy là laptop không cảm ứng). Đổi xong phải đóng hẳn app rồi mở lại.")))
+        add(caption(L("Mỗi chế độ có bố cục nút riêng (chỉnh ở mục Chỉnh nút). Tay cầm: joystick = cần trái, vuốt / gyro = cần phải. Chuột + Phím: joystick = W A S D, vuốt / gyro = chuột.")))
 
         // --- CAMERA & GYRO ---
         addSection("CAMERA & GYRO")
-        add(tile(sliderRow("Độ nhạy vuốt", lo: 0.3, hi: 10.0, value: Float(s.lookSensitivity),
+        add(tile(sliderRow(L("Độ nhạy vuốt"), lo: 0.3, hi: 10.0, value: Float(s.lookSensitivity),
                            format: { String(format: "%.1fx", $0) },
                            live: { PadStore.shared.settings.lookSensitivity = CGFloat(($0 * 10).rounded() / 10) },
                            commit: { PadStore.shared.save() })))
-        add(caption("Gyro (nghiêng máy để ngắm)"))
+        add(caption(L("Gyro (nghiêng máy để ngắm)")))
         let gyroIndex: Int
         switch s.gyroMode {
         case .off: gyroIndex = 0
         case .always: gyroIndex = 1
         case .whileAiming: gyroIndex = 2
         }
-        add(segmented(["Tắt", "Luôn bật", "Khi ngắm"], selected: gyroIndex) { i in
+        add(segmented([L("Tắt"), L("Luôn bật"), L("Khi ngắm")], selected: gyroIndex) { i in
             PadStore.shared.settings.gyroMode = [GyroMode.off, .always, .whileAiming][i]
             host.commitPad()
         })
-        add(tile(sliderRow("Độ nhạy gyro", lo: 0.5, hi: 4.0, value: Float(s.gyroSensitivity),
+        add(tile(sliderRow(L("Độ nhạy gyro"), lo: 0.5, hi: 4.0, value: Float(s.gyroSensitivity),
                            format: { String(format: "%.2fx", $0) },
                            live: { PadStore.shared.settings.gyroSensitivity = CGFloat(($0 * 20).rounded() / 20) },
                            commit: { PadStore.shared.save() })))
-        add(tile(toggleRow("Đảo hướng ngang gyro", symbol: "arrow.left.and.right", isOn: s.gyroInvertX) { on in
+        add(tile(toggleRow(L("Đảo hướng ngang gyro"), symbol: "arrow.left.and.right", isOn: s.gyroInvertX) { on in
             PadStore.shared.settings.gyroInvertX = on
             host.commitPad()
         }))
-        add(tile(toggleRow("Đảo hướng dọc gyro", symbol: "arrow.up.and.down", isOn: s.gyroInvertY) { on in
+        add(tile(toggleRow(L("Đảo hướng dọc gyro"), symbol: "arrow.up.and.down", isOn: s.gyroInvertY) { on in
             PadStore.shared.settings.gyroInvertY = on
             host.commitPad()
         }))
 
         // --- HIỂN THỊ ---
         addSection("HIỂN THỊ")
-        add(tile(sliderRow("Độ đậm của nút", lo: 0.2, hi: 1.0, value: Float(s.opacity),
+        add(tile(sliderRow(L("Độ đậm của nút"), lo: 0.2, hi: 1.0, value: Float(s.opacity),
                            format: { "\(Int(($0 * 100).rounded()))%" },
                            live: { v in
                                PadStore.shared.settings.opacity = CGFloat(v)
@@ -949,35 +961,35 @@ final class GamingPanelView: UIView {
 
         // --- BỐ CỤC & TIỆN ÍCH ---
         addSection("BỐ CỤC & TIỆN ÍCH")
-        let editTitle = host.padEditing ? "Xong chỉnh sửa" : "Chỉnh sửa bố cục"
+        let editTitle = host.padEditing ? L("Xong chỉnh sửa") : L("Chỉnh sửa bố cục")
         let edit = tileButton(editTitle, symbol: host.padEditing ? "checkmark" : "slider.horizontal.3") {
             host.dismissSettingsPanel()
             host.setControlMode(.hud)
             host.padEditing.toggle()
             if !host.padEditing { PadStore.shared.save() }
         }
-        let addBtn = tileButton("Thêm nút…", symbol: "plus.circle") {
+        let addBtn = tileButton(L("Thêm nút…"), symbol: "plus.circle") {
             host.dismissSettingsPanel()
             host.setControlMode(.hud)
             host.addButtonFlow()
         }
-        let release = tileButton("Thả chuột", symbol: "cursorarrow") {
+        let release = tileButton(L("Thả chuột"), symbol: "cursorarrow") {
             host.dismissSettingsPanel()
             host.webView.evaluateJavaScript("document.exitPointerLock&&document.exitPointerLock()")
         }
-        let reload = tileButton("Tải lại trang", symbol: "arrow.clockwise") {
+        let reload = tileButton(L("Tải lại trang"), symbol: "arrow.clockwise") {
             host.dismissSettingsPanel()
             host.webView.reload()
         }
-        let reset = tileButton("Đặt lại bố cục mặc định", symbol: "arrow.uturn.backward", tint: Neon.warn) {
+        let reset = tileButton(L("Đặt lại bố cục mặc định"), symbol: "arrow.uturn.backward", tint: Neon.warn) {
             host.dismissSettingsPanel()
             let alert = UIAlertController(
-                title: "Đặt lại bố cục?",
-                message: "Bố cục nút của chế độ đang chọn (Tay cầm hoặc Chuột + Phím) sẽ về mặc định. Bố cục của chế độ kia giữ nguyên.",
+                title: L("Đặt lại bố cục?"),
+                message: L("Bố cục nút của chế độ đang chọn (Tay cầm hoặc Chuột + Phím) sẽ về mặc định. Bố cục của chế độ kia giữ nguyên."),
                 preferredStyle: .alert
             )
-            alert.addAction(UIAlertAction(title: "Hủy", style: .cancel))
-            alert.addAction(UIAlertAction(title: "Đặt lại", style: .destructive) { _ in
+            alert.addAction(UIAlertAction(title: L("Hủy"), style: .cancel))
+            alert.addAction(UIAlertAction(title: L("Đặt lại"), style: .destructive) { _ in
                 PadStore.shared.settings.resetActiveLayout()     // chỉ đặt lại bố cục của chế độ đang chọn
                 host.commitPad()
             })
@@ -986,7 +998,7 @@ final class GamingPanelView: UIView {
         addRow([edit, addBtn])
         addRow([release, reload])
         addRow([reset])
-        add(caption("Chạm vùng tối bên ngoài để đóng bảng."))
+        add(caption(L("Chạm vùng tối bên ngoài để đóng bảng.")))
     }
 
     // MARK: Thành phần giao diện

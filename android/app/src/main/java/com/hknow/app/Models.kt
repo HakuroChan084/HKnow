@@ -108,20 +108,20 @@ sealed class PadAction {
     val title: String
         get() = when (this) {
             is Mouse -> when (button) {
-                0 -> "Bắn (RT / Chuột trái)"
-                2 -> "Ngắm (LT / Chuột phải)"
-                else -> "R3 (Chuột giữa)"
+                0 -> L("Bắn (RT / Chuột trái)")
+                2 -> L("Ngắm (LT / Chuột phải)")
+                else -> L("R3 (Chuột giữa)")
             }
-            is Key -> "Phím " + spec.display
-            ReleaseLock -> "Thả chuột (mở menu)"
-            is Pad -> "Tay cầm: " + padShort(index)
-            ToggleKeyboard -> "Bật/Tắt bàn phím ảo"
-            ToggleHud -> "Ẩn/Hiện HUD"
+            is Key -> L("Phím ") + spec.display
+            ReleaseLock -> L("Thả chuột (mở menu)")
+            is Pad -> L("Tay cầm: ") + padShort(index)
+            ToggleKeyboard -> L("Bật/Tắt bàn phím ảo")
+            ToggleHud -> L("Ẩn/Hiện HUD")
         }
 
     val defaultLabel: String
         get() = when (this) {
-            is Mouse -> when (button) { 0 -> "Bắn"; 2 -> "Ngắm"; else -> "R3" }
+            is Mouse -> when (button) { 0 -> L("Bắn"); 2 -> L("Ngắm"); else -> "R3" }
             is Key -> spec.display
             ReleaseLock -> "Menu"
             is Pad -> padShort(index)
@@ -165,41 +165,41 @@ sealed class PadAction {
         }
 
         /** Danh sách hành động hay dùng (hiện ngay ở bảng chọn đầu tiên) */
-        val presets: List<Pair<String, PadAction>> by lazy {
+        val presets: List<Pair<String, PadAction>> get() = run {
             val list = mutableListOf<Pair<String, PadAction>>(
-                "Chuột trái (bắn)" to Mouse(0), "Chuột phải (ngắm)" to Mouse(2), "Chuột giữa" to Mouse(1),
-                "Space (nhảy)" to Key(KeySpec.SPACE), "Shift (chạy)" to Key(KeySpec.SHIFT), "Ctrl (ngồi)" to Key(KeySpec.CTRL),
+                L("Chuột trái (bắn)") to Mouse(0), L("Chuột phải (ngắm)") to Mouse(2), L("Chuột giữa") to Mouse(1),
+                L("Space (nhảy)") to Key(KeySpec.SPACE), L("Shift (chạy)") to Key(KeySpec.SHIFT), L("Ctrl (ngồi)") to Key(KeySpec.CTRL),
             )
             for (ch in listOf("R", "E", "F", "Q", "C", "V", "G", "X", "Z")) {
-                KeySpec.parse(ch)?.let { list.add("Phím $ch" to Key(it)) }
+                KeySpec.parse(ch)?.let { list.add(L("Phím ") + ch to Key(it)) }
             }
             list.add("Tab" to Key(KeySpec.TAB)); list.add("Alt" to Key(KeySpec.ALT))
-            for (n in 1..5) KeySpec.parse("$n")?.let { list.add("Phím $n" to Key(it)) }
-            list.add("Bật/Tắt bàn phím ảo" to ToggleKeyboard)
-            list.add("Ẩn/Hiện HUD" to ToggleHud)
-            list.add("Thả chuột (mở menu GFN)" to ReleaseLock)
+            for (n in 1..5) KeySpec.parse("$n")?.let { list.add(L("Phím ") + n to Key(it)) }
+            list.add(L("Bật/Tắt bàn phím ảo") to ToggleKeyboard)
+            list.add(L("Ẩn/Hiện HUD") to ToggleHud)
+            list.add(L("Thả chuột (mở menu GFN)") to ReleaseLock)
             list
         }
 
         /** Bảng chọn: (tên nhóm, danh sách (nhãn, hành động)) */
-        val catalog: List<Pair<String, List<Pair<String, PadAction>>>> by lazy {
+        val catalog: List<Pair<String, List<Pair<String, PadAction>>>> get() = run {
             fun k(s: KeySpec) = s.display to (Key(s) as PadAction)
             fun p(i: Int, label: String) = label to (Pad(i) as PadAction)
             listOf(
-                "Tay cầm / Bắn" to listOf(
-                    "Bắn" to Mouse(0), "Ngắm" to Mouse(2), "R3" to Mouse(1),
+                L("Tay cầm / Bắn") to listOf(
+                    L("Bắn") to Mouse(0), L("Ngắm") to Mouse(2), "R3" to Mouse(1),
                     p(4, "LB"), p(5, "RB"), p(0, "A"), p(1, "B"), p(2, "X"), p(3, "Y"),
                     p(10, "L3"), p(9, "Start"), p(8, "Back"),
                     p(12, "D-Pad ↑"), p(13, "D-Pad ↓"), p(14, "D-Pad ←"), p(15, "D-Pad →"),
                 ),
-                "Phím bổ trợ (Trái / Phải)" to KeySpec.modifiers.map { k(it) },
-                "Phím điều khiển" to KeySpec.controls.map { k(it) },
-                "Phím chức năng" to KeySpec.functionKeys.map { k(it) },
-                "Phím mũi tên" to KeySpec.arrows.map { k(it) },
-                "Chữ cái A – Z" to KeySpec.letters.map { k(it) },
-                "Số & dấu câu" to (KeySpec.digits + KeySpec.punctuation).map { k(it) },
-                "Hệ thống" to listOf(
-                    "Bàn phím ảo" to ToggleKeyboard, "Ẩn/Hiện HUD" to ToggleHud, "Thả chuột" to ReleaseLock,
+                L("Phím bổ trợ (Trái / Phải)") to KeySpec.modifiers.map { k(it) },
+                L("Phím điều khiển") to KeySpec.controls.map { k(it) },
+                L("Phím chức năng") to KeySpec.functionKeys.map { k(it) },
+                L("Phím mũi tên") to KeySpec.arrows.map { k(it) },
+                L("Chữ cái A – Z") to KeySpec.letters.map { k(it) },
+                L("Số & dấu câu") to (KeySpec.digits + KeySpec.punctuation).map { k(it) },
+                L("Hệ thống") to listOf(
+                    L("Bàn phím ảo") to ToggleKeyboard, L("Ẩn/Hiện HUD") to ToggleHud, L("Thả chuột") to ReleaseLock,
                 ),
             )
         }
@@ -236,10 +236,12 @@ data class PadButton(
 enum class GyroMode { OFF, ALWAYS, WHILE_AIMING }
 
 /** Cách gửi input vào trang: tay cầm ảo / chuột+phím tổng hợp / cả hai */
-enum class InputMode(val usesPad: Boolean, val usesKbm: Boolean, val title: String) {
+enum class InputMode(val usesPad: Boolean, val usesKbm: Boolean, private val rawTitle: String) {
     GAMEPAD(true, false, "Tay cầm ảo (khuyên dùng)"),
     KEYBOARD_MOUSE(false, true, "Chuột + Phím"),
-    BOTH(true, true, "Cả hai (song song)"),
+    BOTH(true, true, "Cả hai (song song)");
+
+    val title: String get() = L(rawTitle)
 }
 
 class PadSettings {

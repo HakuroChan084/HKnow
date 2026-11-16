@@ -141,7 +141,7 @@ class OverlayView(context: Context) : View(context) {
             c.drawRoundRect(r, 14f * d, 14f * d, fill)
             c.drawRoundRect(r, 14f * d, 14f * d, dashed)
             text.color = 0x8CFFFFFF.toInt(); text.textSize = 16f * d
-            c.drawText("Vùng xoay camera", r.centerX(), r.centerY() + 6f * d, text)
+            c.drawText(L("Vùng xoay camera"), r.centerX(), r.centerY() + 6f * d, text)
         }
 
         if (!hudHidden) {
@@ -164,14 +164,14 @@ class OverlayView(context: Context) : View(context) {
             stroke.color = if (editing) 0xFFFFCC00.toInt() else 0xBFFFFFFF.toInt()
             c.drawCircle(cx, cy, r, stroke)
             text.color = 0xFFFFFFFF.toInt()
-            text.textSize = (if (b.label.length > 4) 11f else 15f) * d * (b.size / 64f).coerceIn(0.8f, 1.4f)
-            c.drawText(b.label, cx, cy + text.textSize / 3, text)
+            text.textSize = (if (L(b.label).length > 4) 11f else 15f) * d * (b.size / 64f).coerceIn(0.8f, 1.4f)
+            c.drawText(L(b.label), cx, cy + text.textSize / 3, text)
         }
 
         if (editing) {
             text.color = 0xFFFFCC00.toInt(); text.textSize = 14f * d
             c.drawText(
-                "Chỉnh sửa: kéo để di chuyển • chạm nút / khung vàng để sửa • nhấn giữ chỗ trống để thêm nút",
+                L("Chỉnh sửa: kéo để di chuyển • chạm nút / khung vàng để sửa • nhấn giữ chỗ trống để thêm nút"),
                 width / 2f, 76f * d, text
             )
         }

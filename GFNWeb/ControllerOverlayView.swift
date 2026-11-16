@@ -114,7 +114,7 @@ final class PadButtonView: UIView {
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
-    func apply(_ model: PadButton) { label.text = model.label }
+    func apply(_ model: PadButton) { label.text = L(model.label) }   // nhãn mặc định (tiếng Việt) được dịch; nhãn tự đặt giữ nguyên
 
     func setPressed(_ value: Bool) {
         pressed = value
@@ -317,7 +317,7 @@ final class ControllerOverlayView: UIView {
         isMultipleTouchEnabled = true
         addSubview(joystick)
 
-        hint.text = "Chỉnh sửa: kéo để di chuyển • chạm nút để chọn (+ / −) • chạm lần nữa hoặc ⚙︎ để mở cài đặt • nhấn giữ chỗ trống để thêm nút"
+        hint.text = L("Chỉnh sửa: kéo để di chuyển • chạm nút để chọn (+ / −) • chạm lần nữa hoặc ⚙︎ để mở cài đặt • nhấn giữ chỗ trống để thêm nút")
         hint.textColor = .systemYellow
         hint.font = .boldSystemFont(ofSize: 13)
         hint.textAlignment = .center

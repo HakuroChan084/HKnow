@@ -103,6 +103,7 @@ class MainActivity : Activity(), SensorEventListener {
     @SuppressLint("SetJavaScriptEnabled", "ClickableViewAccessibility")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        Lang.load(this)
         PadStore.init(this)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         hideSystemBars()
@@ -548,33 +549,39 @@ class MainActivity : Activity(), SensorEventListener {
     private fun showMenu() {
         val s = settings
         val items = ArrayList<Pair<String, () -> Unit>>()
-        items += mark(s.enabled) + "Bộ điều khiển ảo" to { s.enabled = !s.enabled; commit() }
-        items += "Chế độ nhập liệu…" to {
-            choose("Chế độ nhập liệu", InputMode.values().map { mark(s.inputMode == it) + it.title }) {
+        items += mark(s.enabled) + L("Bộ điều khiển ảo") to { s.enabled = !s.enabled; commit() }
+        items += L("Chế độ nhập liệu…") to {
+            choose(L("Chế độ nhập liệu"), InputMode.values().map { mark(s.inputMode == it) + it.title }) {
                 s.inputMode = InputMode.values()[it]; resetStick(); commit()
             }
         }
-        items += (if (padEditing) "Xong chỉnh sửa" else "Chỉnh sửa bố cục") to {
+        items += (if (padEditing) L("Xong chỉnh sửa") else L("Chỉnh sửa bố cục")) to {
             padEditing = !padEditing
             if (!padEditing) PadStore.save()
         }
-        items += "Thêm nút…" to { addButtonAt(0.5f, 0.5f) }
-        items += (if (keyField.hasFocus()) "Tắt bàn phím ảo" else "Bật bàn phím ảo") to { toggleKeyboard() }
-        items += (if (overlay.hudHidden) "Hiện HUD" else "Ẩn HUD (chạm tự do vào menu game)") to { perform(PadAction.ToggleHud, true) }
-        items += "Gyro (nghiêng máy để ngắm)…" to {
+        items += L("Thêm nút…") to { addButtonAt(0.5f, 0.5f) }
+        items += (if (keyField.hasFocus()) L("Tắt bàn phím ảo") else L("Bật bàn phím ảo")) to { toggleKeyboard() }
+        items += (if (overlay.hudHidden) L("Hiện HUD") else L("Ẩn HUD (chạm tự do vào menu game)")) to { perform(PadAction.ToggleHud, true) }
+        items += L("Gyro (nghiêng máy để ngắm)…") to {
             val modes = GyroMode.values()
-            val names = listOf("Tắt", "Luôn bật", "Chỉ khi giữ nút Ngắm")
+            val names = listOf(L("Tắt"), L("Luôn bật"), L("Chỉ khi giữ nút Ngắm"))
             choose("Gyro", modes.indices.map { mark(s.gyroMode == modes[it]) + names[it] }) { s.gyroMode = modes[it]; commit() }
         }
-        items += "Độ nhạy gyro…" to { chooseValue("Độ nhạy gyro", listOf(0.5f, 1f, 1.5f, 2f, 3f, 4f), s.gyroSensitivity, { "${it}x" }) { s.gyroSensitivity = it; commit() } }
-        items += mark(s.gyroInvertX) + "Đảo hướng ngang gyro" to { s.gyroInvertX = !s.gyroInvertX; commit() }
-        items += mark(s.gyroInvertY) + "Đảo hướng dọc gyro" to { s.gyroInvertY = !s.gyroInvertY; commit() }
-        items += "Độ nhạy vuốt màn hình…" to { chooseValue("Độ nhạy vuốt", listOf(0.5f, 0.75f, 1f, 1.5f, 2f, 3f), s.lookSensitivity, { "${it}x" }) { s.lookSensitivity = it; commit() } }
-        items += "Độ đậm của nút…" to { chooseValue("Độ đậm", listOf(0.3f, 0.45f, 0.6f, 0.8f, 1f), s.opacity, { "${(it * 100).toInt()}%" }) { s.opacity = it; commit() } }
-        items += mark(s.touchMouse) + "Chế độ chuột cảm ứng (launcher: ẩn nút, chạm = chuột)" to { s.touchMouse = !s.touchMouse; commit() }
-        items += "Thả chuột / chạm vào menu GFN" to { js("document.exitPointerLock&&document.exitPointerLock()") }
-        items += "Tải lại trang" to { webView.reload() }
-        items += "Đặt lại bố cục mặc định" to { PadStore.settings = PadSettings(); commit() }
+        items += L("Độ nhạy gyro…") to { chooseValue(L("Độ nhạy gyro"), listOf(0.5f, 1f, 1.5f, 2f, 3f, 4f), s.gyroSensitivity, { "${it}x" }) { s.gyroSensitivity = it; commit() } }
+        items += mark(s.gyroInvertX) + L("Đảo hướng ngang gyro") to { s.gyroInvertX = !s.gyroInvertX; commit() }
+        items += mark(s.gyroInvertY) + L("Đảo hướng dọc gyro") to { s.gyroInvertY = !s.gyroInvertY; commit() }
+        items += L("Độ nhạy vuốt màn hình…") to { chooseValue(L("Độ nhạy vuốt"), listOf(0.5f, 0.75f, 1f, 1.5f, 2f, 3f), s.lookSensitivity, { "${it}x" }) { s.lookSensitivity = it; commit() } }
+        items += L("Độ đậm của nút…") to { chooseValue(L("Độ đậm"), listOf(0.3f, 0.45f, 0.6f, 0.8f, 1f), s.opacity, { "${(it * 100).toInt()}%" }) { s.opacity = it; commit() } }
+        items += mark(s.touchMouse) + L("Chế độ chuột cảm ứng (launcher: ẩn nút, chạm = chuột)") to { s.touchMouse = !s.touchMouse; commit() }
+        items += L("Thả chuột / chạm vào menu GFN") to { js("document.exitPointerLock&&document.exitPointerLock()") }
+        items += L("Tải lại trang") to { webView.reload() }
+        items += L("Ngôn ngữ / Language / Язык…") to {
+            val langs = Lang.values()
+            choose("Language / Ngôn ngữ / Язык", langs.map { mark(Lang.current == it) + it.nativeName }) {
+                Lang.set(this, langs[it]); recreate()
+            }
+        }
+        items += L("Đặt lại bố cục mặc định") to { PadStore.settings = PadSettings(); commit() }
 
         AlertDialog.Builder(this)
             .setItems(items.map { it.first }.toTypedArray()) { _, i -> items[i].second() }
@@ -597,14 +604,14 @@ class MainActivity : Activity(), SensorEventListener {
         val nx = (px / overlay.width).coerceIn(0.03f, 0.97f)
         val ny = (py / overlay.height).coerceIn(0.05f, 0.95f)
         val quick = listOf(PadAction.Mouse(0), PadAction.Mouse(2), PadAction.Key(KeySpec.SPACE), PadAction.ToggleKeyboard, PadAction.ToggleHud)
-        val labels = listOf("Chọn hành động / phím…") + quick.map { it.title }
-        choose("Thêm nút tại đây", labels) { i ->
+        val labels = listOf(L("Chọn hành động / phím…")) + quick.map { it.title }
+        choose(L("Thêm nút tại đây"), labels) { i ->
             if (i == 0) addButtonAt(nx, ny) else insertButton(quick[i - 1], nx, ny)
         }
     }
 
     private fun addButtonAt(nx: Float, ny: Float) {
-        showActionChooser("Chọn hành động cho nút mới") { insertButton(it, nx, ny) }
+        showActionChooser(L("Chọn hành động cho nút mới")) { insertButton(it, nx, ny) }
     }
 
     private fun insertButton(a: PadAction, nx: Float, ny: Float) {
@@ -618,7 +625,7 @@ class MainActivity : Activity(), SensorEventListener {
 
     private fun showActionChooser(title: String, pick: (PadAction) -> Unit) {
         val presets = PadAction.presets
-        val labels = presets.map { it.first } + listOf("Tất cả phím & nút tay cầm…", "Phím khác…")
+        val labels = presets.map { it.first } + listOf(L("Tất cả phím & nút tay cầm…"), L("Phím khác…"))
         choose(title, labels) { i ->
             when {
                 i < presets.size -> pick(presets[i].second)
@@ -630,20 +637,20 @@ class MainActivity : Activity(), SensorEventListener {
 
     private fun showGroupChooser(pick: (PadAction) -> Unit) {
         val groups = PadAction.catalog
-        choose("Chọn nhóm", groups.map { it.first }) { gi ->
+        choose(L("Chọn nhóm"), groups.map { it.first }) { gi ->
             val items = groups[gi].second
             choose(groups[gi].first, items.map { it.first }) { pick(items[it].second) }
         }
     }
 
     private fun askCustomKey(pick: (PadAction) -> Unit) {
-        val input = EditText(this).apply { hint = "ví dụ: t, F5, space, ctrl"; inputType = InputType.TYPE_CLASS_TEXT }
-        AlertDialog.Builder(this).setTitle("Phím khác").setView(input)
-            .setNegativeButton("Hủy", null)
+        val input = EditText(this).apply { hint = L("ví dụ: t, F5, space, ctrl"); inputType = InputType.TYPE_CLASS_TEXT }
+        AlertDialog.Builder(this).setTitle(L("Phím khác")).setView(input)
+            .setNegativeButton(L("Hủy"), null)
             .setPositiveButton("OK") { _, _ ->
                 val spec = KeySpec.parse(input.text.toString())
                 if (spec != null) pick(PadAction.Key(spec))
-                else AlertDialog.Builder(this).setTitle("Không nhận ra phím này").setPositiveButton("OK", null).show()
+                else AlertDialog.Builder(this).setTitle(L("Không nhận ra phím này")).setPositiveButton("OK", null).show()
             }.show()
     }
 
@@ -658,49 +665,49 @@ class MainActivity : Activity(), SensorEventListener {
     private fun showButtonEditor(id: String) {
         val b = settings.buttons.firstOrNull { it.id == id } ?: return
         val items = listOf<Pair<String, () -> Unit>>(
-            "Đổi hành động…" to { showActionChooser("Hành động mới") { a -> mutate(id) { it.action = a; it.label = a.defaultLabel } } },
-            "Đổi tên nhãn…" to {
-                val input = EditText(this).apply { setText(b.label) }
-                AlertDialog.Builder(this).setTitle("Tên nhãn").setView(input)
-                    .setNegativeButton("Hủy", null)
+            L("Đổi hành động…") to { showActionChooser(L("Hành động mới")) { a -> mutate(id) { it.action = a; it.label = a.defaultLabel } } },
+            L("Đổi tên nhãn…") to {
+                val input = EditText(this).apply { setText(L(b.label)) }
+                AlertDialog.Builder(this).setTitle(L("Tên nhãn")).setView(input)
+                    .setNegativeButton(L("Hủy"), null)
                     .setPositiveButton("OK") { _, _ -> mutate(id) { it.label = input.text.toString() } }.show()
             },
-            "Nhân bản" to {
+            L("Nhân bản") to {
                 settings.buttons.add(b.copy(id = java.util.UUID.randomUUID().toString(), x = min(b.x + 0.07f, 0.97f), y = min(b.y + 0.10f, 0.95f)))
                 PadStore.save(); overlay.reload()
             },
-            "Phóng to" to { mutate(id) { it.size = min(it.size * 1.2f, 220f) } },
-            "Thu nhỏ" to { mutate(id) { it.size = max(it.size / 1.2f, 36f) } },
-            "Xóa nút" to { settings.buttons.removeAll { it.id == id }; PadStore.save(); overlay.reload() },
+            L("Phóng to") to { mutate(id) { it.size = min(it.size * 1.2f, 220f) } },
+            L("Thu nhỏ") to { mutate(id) { it.size = max(it.size / 1.2f, 36f) } },
+            L("Xóa nút") to { settings.buttons.removeAll { it.id == id }; PadStore.save(); overlay.reload() },
         )
-        AlertDialog.Builder(this).setTitle("${b.label} — ${b.action.title}")
+        AlertDialog.Builder(this).setTitle("${L(b.label)} — ${b.action.title}")
             .setItems(items.map { it.first }.toTypedArray()) { _, i -> items[i].second() }
-            .setNegativeButton("Xong", null).show()
+            .setNegativeButton(L("Xong"), null).show()
     }
 
     private fun showJoystickEditor() {
-        AlertDialog.Builder(this).setTitle("Joystick đi (W A S D)")
-            .setItems(arrayOf("Phóng to", "Thu nhỏ")) { _, i ->
+        AlertDialog.Builder(this).setTitle(L("Joystick đi (W A S D)"))
+            .setItems(arrayOf(L("Phóng to"), L("Thu nhỏ"))) { _, i ->
                 settings.joySize = if (i == 0) min(settings.joySize * 1.2f, 300f) else max(settings.joySize / 1.2f, 90f)
                 commit()
-            }.setNegativeButton("Xong", null).show()
+            }.setNegativeButton(L("Xong"), null).show()
     }
 
     private fun showLookEditor() {
         val g = 1.15f
         val opts = listOf(
-            Triple("Phóng to cả khung", g, g), Triple("Thu nhỏ cả khung", 1 / g, 1 / g),
-            Triple("Rộng hơn (ngang)", g, 1f), Triple("Hẹp lại (ngang)", 1 / g, 1f),
-            Triple("Cao hơn (dọc)", 1f, g), Triple("Thấp lại (dọc)", 1f, 1 / g),
+            Triple(L("Phóng to cả khung"), g, g), Triple(L("Thu nhỏ cả khung"), 1 / g, 1 / g),
+            Triple(L("Rộng hơn (ngang)"), g, 1f), Triple(L("Hẹp lại (ngang)"), 1 / g, 1f),
+            Triple(L("Cao hơn (dọc)"), 1f, g), Triple(L("Thấp lại (dọc)"), 1f, 1 / g),
         )
-        AlertDialog.Builder(this).setTitle("Vùng xoay camera (kéo khung để di chuyển)")
-            .setItems((opts.map { it.first } + "Đặt lại vị trí & kích thước").toTypedArray()) { _, i ->
+        AlertDialog.Builder(this).setTitle(L("Vùng xoay camera (kéo khung để di chuyển)"))
+            .setItems((opts.map { it.first } + L("Đặt lại vị trí & kích thước")).toTypedArray()) { _, i ->
                 if (i < opts.size) {
                     settings.lookWidth *= opts[i].second
                     settings.lookHeight *= opts[i].third
                     settings.clampLookPad()
                 } else settings.resetLookPad()
                 commit()
-            }.setNegativeButton("Xong", null).show()
+            }.setNegativeButton(L("Xong"), null).show()
     }
 }

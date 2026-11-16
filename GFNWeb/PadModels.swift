@@ -116,12 +116,12 @@ struct KeySpec: Codable, Equatable {
 
 enum GamepadButton {
     /// (tên đầy đủ, nhãn ngắn) theo chỉ số nút
-    static let names: [Int: (String, String)] = [
+    static var names: [Int: (String, String)] { [
         0: ("A", "A"), 1: ("B", "B"), 2: ("X", "X"), 3: ("Y", "Y"),
         4: ("LB", "LB"), 5: ("RB", "RB"), 6: ("LT", "LT"), 7: ("RT", "RT"),
-        8: ("Back", "Back"), 9: ("Start", "Start"), 10: ("L3 (nhấn cần trái)", "L3"), 11: ("R3 (nhấn cần phải)", "R3"),
-        12: ("D-Pad Lên", "D↑"), 13: ("D-Pad Xuống", "D↓"), 14: ("D-Pad Trái", "D←"), 15: ("D-Pad Phải", "D→"),
-    ]
+        8: ("Back", "Back"), 9: ("Start", "Start"), 10: (L("L3 (nhấn cần trái)"), "L3"), 11: (L("R3 (nhấn cần phải)"), "R3"),
+        12: (L("D-Pad Lên"), "D↑"), 13: (L("D-Pad Xuống"), "D↓"), 14: (L("D-Pad Trái"), "D←"), 15: (L("D-Pad Phải"), "D→"),
+    ] }
     static let lt = 6
 }
 
@@ -138,13 +138,13 @@ enum PadAction: Codable, Equatable {
 
     var title: String {
         switch self {
-        case .mouse(let b): return b == 0 ? "Chuột trái" : (b == 2 ? "Chuột phải" : "Chuột giữa")
-        case .key(let k): return "Phím " + k.display
-        case .releaseLock: return "Thả chuột (mở menu)"
-        case .pad(let i): return "Tay cầm: " + (GamepadButton.names[i]?.0 ?? "Nút \(i)")
-        case .toggleKeyboard: return "Bật/Tắt bàn phím ảo"
-        case .toggleHUD: return "Ẩn/Hiện HUD"
-        case .fireAim: return "Bắn + Ngắm (cùng lúc)"
+        case .mouse(let b): return b == 0 ? L("Chuột trái") : (b == 2 ? L("Chuột phải") : L("Chuột giữa"))
+        case .key(let k): return L("Phím ") + k.display
+        case .releaseLock: return L("Thả chuột (mở menu)")
+        case .pad(let i): return L("Tay cầm: ") + (GamepadButton.names[i]?.0 ?? String(format: L("Nút %d"), i))
+        case .toggleKeyboard: return L("Bật/Tắt bàn phím ảo")
+        case .toggleHUD: return L("Ẩn/Hiện HUD")
+        case .fireAim: return L("Bắn + Ngắm (cùng lúc)")
         }
     }
 
@@ -156,7 +156,7 @@ enum PadAction: Codable, Equatable {
         case .pad(let i): return GamepadButton.names[i]?.1 ?? "\(i)"
         case .toggleKeyboard: return "⌨︎"
         case .toggleHUD: return "HUD"
-        case .fireAim: return "Bắn+Ngắm"
+        case .fireAim: return L("Bắn+Ngắm")
         }
     }
 
@@ -205,30 +205,30 @@ extension PadAction {
         }
 
         return [
-            ActionGroup(title: "Tay cầm (Xbox)", items: [
-                padItem(7, "RT", "Bắn"), padItem(6, "LT", "Ngắm"),
-                ActionItem(label: "Bắn+Ngắm", detail: "RT + LT cùng lúc", action: .fireAim),
+            ActionGroup(title: L("Tay cầm (Xbox)"), items: [
+                padItem(7, "RT", L("Bắn")), padItem(6, "LT", L("Ngắm")),
+                ActionItem(label: L("Bắn+Ngắm"), detail: L("RT + LT cùng lúc"), action: .fireAim),
                 padItem(4, "LB"), padItem(5, "RB"),
                 padItem(0, "A"), padItem(1, "B"), padItem(2, "X"), padItem(3, "Y"),
                 padItem(10, "L3"), padItem(11, "R3"), padItem(9, "Start"), padItem(8, "Back"),
                 padItem(12, "D-Pad ↑"), padItem(13, "D-Pad ↓"), padItem(14, "D-Pad ←"), padItem(15, "D-Pad →"),
             ]),
-            ActionGroup(title: "Chuột (chế độ Chuột + Phím)", items: [
-                ActionItem(label: "Chuột trái", detail: "Bắn", action: .mouse(0)),
-                ActionItem(label: "Chuột phải", detail: "Ngắm", action: .mouse(2)),
-                ActionItem(label: "Chuột giữa", detail: nil, action: .mouse(1)),
-                ActionItem(label: "Bắn+Ngắm", detail: "Trái + phải cùng lúc", action: .fireAim),
+            ActionGroup(title: L("Chuột (chế độ Chuột + Phím)"), items: [
+                ActionItem(label: L("Chuột trái"), detail: L("Bắn"), action: .mouse(0)),
+                ActionItem(label: L("Chuột phải"), detail: L("Ngắm"), action: .mouse(2)),
+                ActionItem(label: L("Chuột giữa"), detail: nil, action: .mouse(1)),
+                ActionItem(label: L("Bắn+Ngắm"), detail: L("Trái + phải cùng lúc"), action: .fireAim),
             ]),
-            ActionGroup(title: "Phím bổ trợ (Trái / Phải)", items: KeySpec.modifiers.map { keyItem($0) }),
-            ActionGroup(title: "Phím điều khiển", items: KeySpec.controls.map { keyItem($0) }),
-            ActionGroup(title: "Phím chức năng", items: KeySpec.functionKeys.map { keyItem($0) }),
-            ActionGroup(title: "Phím mũi tên", items: KeySpec.arrows.map { keyItem($0) }),
-            ActionGroup(title: "Chữ cái A – Z", items: KeySpec.letters.map { keyItem($0) }),
-            ActionGroup(title: "Số & dấu câu", items: (KeySpec.digits + KeySpec.punctuation).map { keyItem($0) }),
-            ActionGroup(title: "Hệ thống", items: [
-                ActionItem(label: "Bàn phím ảo", detail: "Bật / tắt", action: .toggleKeyboard),
-                ActionItem(label: "Ẩn/Hiện HUD", detail: "Chạm menu game", action: .toggleHUD),
-                ActionItem(label: "Thả chuột", detail: "Mở menu GFN", action: .releaseLock),
+            ActionGroup(title: L("Phím bổ trợ (Trái / Phải)"), items: KeySpec.modifiers.map { keyItem($0) }),
+            ActionGroup(title: L("Phím điều khiển"), items: KeySpec.controls.map { keyItem($0) }),
+            ActionGroup(title: L("Phím chức năng"), items: KeySpec.functionKeys.map { keyItem($0) }),
+            ActionGroup(title: L("Phím mũi tên"), items: KeySpec.arrows.map { keyItem($0) }),
+            ActionGroup(title: L("Chữ cái A – Z"), items: KeySpec.letters.map { keyItem($0) }),
+            ActionGroup(title: L("Số & dấu câu"), items: (KeySpec.digits + KeySpec.punctuation).map { keyItem($0) }),
+            ActionGroup(title: L("Hệ thống"), items: [
+                ActionItem(label: L("Bàn phím ảo"), detail: L("Bật / tắt"), action: .toggleKeyboard),
+                ActionItem(label: L("Ẩn/Hiện HUD"), detail: L("Chạm menu game"), action: .toggleHUD),
+                ActionItem(label: L("Thả chuột"), detail: L("Mở menu GFN"), action: .releaseLock),
             ]),
         ]
     }

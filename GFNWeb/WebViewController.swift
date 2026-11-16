@@ -16,18 +16,18 @@ enum InputMode: Int, CaseIterable {
 
     var title: String {
         switch self {
-        case .gamepad: return "Tay cầm ảo (khuyên dùng)"
-        case .keyboardMouse: return "Chuột + Phím"
-        case .both: return "Cả hai (song song)"
+        case .gamepad: return L("Tay cầm ảo (khuyên dùng)")
+        case .keyboardMouse: return L("Chuột + Phím")
+        case .both: return L("Cả hai (song song)")
         }
     }
 
     /// Nhãn ngắn cho ô chọn trong bảng cài đặt
     var shortTitle: String {
         switch self {
-        case .gamepad: return "Tay cầm"
-        case .keyboardMouse: return "Chuột + Phím"
-        case .both: return "Cả hai"
+        case .gamepad: return L("Tay cầm")
+        case .keyboardMouse: return L("Chuột + Phím")
+        case .both: return L("Cả hai")
         }
     }
 }
