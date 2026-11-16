@@ -13,10 +13,8 @@ enum class Lang(val code: String, val nativeName: String) {
         private var override: Lang? = null
         private var loaded = false
 
-        private fun system(): Lang {
-            val c = Locale.getDefault().language.lowercase()
-            return when { c.startsWith("vi") -> VI; c.startsWith("ru") -> RU; else -> EN }
-        }
+        /** Mặc định: English (đổi tay trong menu) */
+        private fun system(): Lang = EN
 
         fun load(context: Context) {
             val code = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY, null)

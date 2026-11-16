@@ -6,12 +6,8 @@ enum AppLang: String, CaseIterable {
 
     private static let key = "gfnweb.lang.v1"
 
-    static var system: AppLang {
-        let p = Locale.preferredLanguages.first?.lowercased() ?? "en"
-        if p.hasPrefix("vi") { return .vi }
-        if p.hasPrefix("ru") { return .ru }
-        return .en
-    }
+    /// Mặc định: English (đổi tay trong cài đặt)
+    static var system: AppLang { .en }
 
     static var current: AppLang {
         get {
