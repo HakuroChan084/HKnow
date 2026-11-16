@@ -15,6 +15,16 @@ android {
         versionName = (project.findProperty("verName") ?: "1.0").toString()
     }
 
+    // Khóa ký cố định (commit trong repo) => các bản build sau cài đè lên bản trước được
+    signingConfigs {
+        getByName("debug") {
+            storeFile = file("hknow-debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
+    }
+
     buildTypes {
         // Bản debug được ký bằng khóa debug tự động => cài thẳng được, không cần keystore
         release {
