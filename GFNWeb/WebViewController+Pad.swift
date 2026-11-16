@@ -22,7 +22,7 @@ extension WebViewController {
         // Nút bàn phím ảo ở góc phải (hiện ở chế độ Chuột / Launcher)
         let kcfg = UIImage.SymbolConfiguration(pointSize: 18, weight: .semibold)
         keyboardButton.setImage(UIImage(systemName: "keyboard", withConfiguration: kcfg), for: .normal)
-        keyboardButton.tintColor = .white
+        keyboardButton.tintColor = sakuraPink
         keyboardButton.backgroundColor = UIColor.black.withAlphaComponent(0.55)
         keyboardButton.layer.cornerRadius = 20
         keyboardButton.layer.borderWidth = 1
@@ -48,7 +48,7 @@ extension WebViewController {
 
     func refreshKeyboardButton() {
         let on = keyField.isFirstResponder
-        keyboardButton.tintColor = on ? Neon.accent : .white
+        keyboardButton.tintColor = on ? Neon.accent : sakuraPink
         keyboardButton.backgroundColor = on ? UIColor.black.withAlphaComponent(0.8) : UIColor.black.withAlphaComponent(0.55)
     }
 
@@ -577,7 +577,7 @@ final class TopBarView: UIView {
 
         let cfg = UIImage.SymbolConfiguration(pointSize: 15, weight: .semibold)
         settingsButton.setImage(UIImage(systemName: "gearshape.fill", withConfiguration: cfg), for: .normal)
-        settingsButton.tintColor = .white
+        settingsButton.tintColor = sakuraPink
 
         divider.backgroundColor = UIColor.white.withAlphaComponent(0.2)
 
@@ -737,6 +737,27 @@ final class GamingPanelView: UIView {
         card.layer.shadowOffset = .zero
         card.translatesAutoresizingMaskIntoConstraints = false
         addSubview(card)
+
+        // Nền khung cài đặt: ảnh nhân vật mờ nhẹ + hoa đào rơi (nằm dưới nội dung)
+        let bg = UIImageView(image: UIImage(named: "Waifu"))
+        bg.contentMode = .scaleAspectFill
+        bg.alpha = 0.22
+        bg.clipsToBounds = true
+        bg.layer.cornerRadius = 18
+        bg.isUserInteractionEnabled = false
+        bg.translatesAutoresizingMaskIntoConstraints = false
+        card.insertSubview(bg, at: 0)
+        let petals = SakuraView(intensity: 0.8)
+        petals.clipsToBounds = true
+        petals.layer.cornerRadius = 18
+        petals.translatesAutoresizingMaskIntoConstraints = false
+        card.insertSubview(petals, at: 1)
+        NSLayoutConstraint.activate([
+            bg.leadingAnchor.constraint(equalTo: card.leadingAnchor), bg.trailingAnchor.constraint(equalTo: card.trailingAnchor),
+            bg.topAnchor.constraint(equalTo: card.topAnchor), bg.bottomAnchor.constraint(equalTo: card.bottomAnchor),
+            petals.leadingAnchor.constraint(equalTo: card.leadingAnchor), petals.trailingAnchor.constraint(equalTo: card.trailingAnchor),
+            petals.topAnchor.constraint(equalTo: card.topAnchor), petals.bottomAnchor.constraint(equalTo: card.bottomAnchor),
+        ])
 
         // Tiêu đề
         let title = UILabel()

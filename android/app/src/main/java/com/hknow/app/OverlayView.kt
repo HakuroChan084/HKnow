@@ -147,11 +147,11 @@ class OverlayView(context: Context) : View(context) {
         if (!hudHidden) {
             // Joystick
             val cx = joyCenterX(); val cy = joyCenterY(); val r = joyRadius()
-            fill.color = 0x1AFFFFFF
+            fill.color = 0x26FFC8E0
             c.drawCircle(cx, cy, r, fill)
-            stroke.color = if (editing) 0xFFFFCC00.toInt() else 0x99FFFFFF.toInt()
+            stroke.color = if (editing) 0xFFFFCC00.toInt() else 0xB3FFC8E0.toInt()
             c.drawCircle(cx, cy, r, stroke)
-            fill.color = 0x73FFFFFF
+            fill.color = 0x8CFFC8E0.toInt()
             c.drawCircle(cx + joyOffX, cy + joyOffY, r * 0.42f, fill)
         }
 
@@ -159,9 +159,9 @@ class OverlayView(context: Context) : View(context) {
         for (b in settings.buttons) {
             if (!visible(b)) continue
             val cx = b.x * width; val cy = b.y * height; val r = b.size * d / 2
-            fill.color = if (b.id in pressed) 0x80FFFFFF.toInt() else 0x29FFFFFF
+            fill.color = if (b.id in pressed) 0x99FFC8E0.toInt() else 0x40FFC8E0
             c.drawCircle(cx, cy, r, fill)
-            stroke.color = if (editing) 0xFFFFCC00.toInt() else 0xBFFFFFFF.toInt()
+            stroke.color = if (editing) 0xFFFFCC00.toInt() else 0xE6FFC8E0.toInt()
             c.drawCircle(cx, cy, r, stroke)
             text.color = 0xFFFFFFFF.toInt()
             text.textSize = (if (L(b.label).length > 4) 11f else 15f) * d * (b.size / 64f).coerceIn(0.8f, 1.4f)

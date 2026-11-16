@@ -191,7 +191,7 @@ class MainActivity : Activity(), SensorEventListener {
             textSize = 18f
             gravity = Gravity.CENTER
             alpha = 0.7f
-            background = GradientDrawable().apply { setColor(0x66000000); cornerRadius = 18 * dp }
+            background = GradientDrawable().apply { setColor(0x99D81B60.toInt()); cornerRadius = 18 * dp }
             setOnClickListener { showMenu() }
         }
         root.addView(gear, FrameLayout.LayoutParams((36 * dp).toInt(), (36 * dp).toInt()).apply {
@@ -227,6 +227,7 @@ class MainActivity : Activity(), SensorEventListener {
         })
 
         applyPadState()
+        root.addView(SplashLayer(this) { root.removeView(it) }, FrameLayout.LayoutParams(-1, -1))
         android.view.Choreographer.getInstance().postFrameCallback(frameCallback)
         webView.loadUrl(startUrl)
     }

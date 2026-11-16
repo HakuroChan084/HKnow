@@ -269,6 +269,7 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
         setupGearButton()
         view.addSubview(cursorView)     // luôn nằm trên cùng
         setupPointer()
+        SplashView().show(in: view)     // màn hình mở đầu: ảnh + hoa đào rơi
 
         // Gửi chuyển động chuột/gyro/vuốt vào trang theo nhịp màn hình (tối đa 120Hz)
         let link = CADisplayLink(target: self, selector: #selector(flushMouse(_:)))

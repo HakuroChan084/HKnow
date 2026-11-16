@@ -1,12 +1,14 @@
 import UIKit
 
-// MARK: - Màu chủ đạo (xanh NVIDIA)
+// MARK: - Màu chủ đạo (hồng sakura)
+
+let sakuraPink = UIColor(red: 1.0, green: 0.78, blue: 0.88, alpha: 1)
 
 enum Neon {
-    static let accent = UIColor(red: 0.463, green: 0.725, blue: 0.0, alpha: 1)
-    static let panel = UIColor(red: 0.055, green: 0.065, blue: 0.075, alpha: 0.97)
-    static let row = UIColor(white: 1, alpha: 0.07)
-    static let sub = UIColor(white: 1, alpha: 0.55)
+    static let accent = UIColor(red: 1.0, green: 0.53, blue: 0.73, alpha: 1)
+    static let panel = UIColor(red: 0.17, green: 0.065, blue: 0.125, alpha: 0.95)
+    static let row = UIColor(red: 1, green: 0.7, blue: 0.85, alpha: 0.12)
+    static let sub = UIColor(red: 1, green: 0.84, blue: 0.91, alpha: 0.7)
     static let warn = UIColor(red: 1.0, green: 0.45, blue: 0.25, alpha: 1)
 }
 
@@ -122,11 +124,11 @@ final class PadButtonView: UIView {
     }
 
     private func updateStyle() {
-        backgroundColor = UIColor.white.withAlphaComponent(pressed ? 0.5 : 0.16)
+        backgroundColor = sakuraPink.withAlphaComponent(pressed ? 0.6 : 0.22)
         let border: UIColor
         if selectedStyle { border = Neon.accent }
         else if editingStyle { border = .systemYellow }
-        else { border = UIColor.white.withAlphaComponent(0.75) }
+        else { border = sakuraPink.withAlphaComponent(0.9) }
         layer.borderColor = border.cgColor
         layer.borderWidth = selectedStyle ? 3.5 : 2
     }
@@ -151,7 +153,7 @@ final class JoystickView: UIView {
         super.init(frame: frame)
         isUserInteractionEnabled = false
         layer.borderWidth = 2
-        knob.backgroundColor = UIColor.white.withAlphaComponent(0.45)
+        knob.backgroundColor = sakuraPink.withAlphaComponent(0.55)
         addSubview(knob)
         updateStyle()
     }
@@ -166,11 +168,11 @@ final class JoystickView: UIView {
     }
 
     private func updateStyle() {
-        backgroundColor = UIColor.white.withAlphaComponent(0.10)
+        backgroundColor = sakuraPink.withAlphaComponent(0.12)
         let border: UIColor
         if selectedStyle { border = Neon.accent }
         else if editingStyle { border = .systemYellow }
-        else { border = UIColor.white.withAlphaComponent(0.6) }
+        else { border = sakuraPink.withAlphaComponent(0.7) }
         layer.borderColor = border.cgColor
         layer.borderWidth = selectedStyle ? 3.5 : 2
     }
